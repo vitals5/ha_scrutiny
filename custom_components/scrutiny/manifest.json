@@ -1,0 +1,12 @@
+{
+  "domain": "scrutiny",
+  "name": "Scrutiny",
+  "codeowners": [
+    "@vitals5"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/vitals5/ha_scrutiny",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/vitals5/ha_scrutiny/issues",
+  "version": "0.1.0"
+}
