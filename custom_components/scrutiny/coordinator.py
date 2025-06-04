@@ -1,32 +1,76 @@
-"""DataUpdateCoordinator for scrutiny."""
+"""DataUpdateCoordinator for the Scrutiny integration."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from datetime import (
+    timedelta,
+)
+from logging import (
+    Logger,
+)
+from typing import Any, NoReturn
 
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
-from .api import (
-    ScrutinyApiClientAuthenticationError,
-    ScrutinyApiClientError,
+from homeassistant.core import (
+    HomeAssistant,
+)
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
 )
 
-if TYPE_CHECKING:
-    from .data import ScrutinyConfigEntry
+from .api import ScrutinyApiClient, ScrutinyApiConnectionError, ScrutinyApiError
+from .const import LOGGER
 
 
-# https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
-class ScrutinyDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching data from the API."""
+def _raise_update_failed(message: str, error: Exception) -> NoReturn:
+    """
+    Construct and raise an UpdateFailed exception.
 
-    config_entry: ScrutinyConfigEntry
+    This centralizes message formatting for exceptions and handles the raise,
+    adhering to Ruff rules like EM101/EM102 and TRY003.
+    """
+    final_message = f"{message}: {error!s}"
+    raise UpdateFailed(final_message) from error
 
-    async def _async_update_data(self) -> Any:
-        """Update data via library."""
+
+class ScrutinyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Manage fetching Scrutiny data from the API."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        logger: Logger,
+        name: str,
+        api_client: ScrutinyApiClient,
+        update_interval: timedelta,
+    ) -> None:
+        """Initialize."""
+        self.api_client = api_client
+        super().__init__(
+            hass,
+            logger,
+            name=name,
+            update_interval=update_interval,
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data from Scrutiny API."""
         try:
-            return await self.config_entry.runtime_data.client.async_get_data()
-        except ScrutinyApiClientAuthenticationError as exception:
-            raise ConfigEntryAuthFailed(exception) from exception
-        except ScrutinyApiClientError as exception:
-            raise UpdateFailed(exception) from exception
+            summary_data = await self.api_client.async_get_summary()
+        except ScrutinyApiConnectionError as err:
+            _raise_update_failed("Error communicating with Scrutiny API", err)
+        except ScrutinyApiError as err:
+            _raise_update_failed("Invalid response from Scrutiny API", err)
+        except Exception as err:  # pylint: disable=broad-except
+            self.logger.exception("Unexpected error fetching Scrutiny data")
+            _raise_update_failed(
+                "An unexpected error occurred while fetching data", err
+            )
+        else:
+            if not isinstance(summary_data, dict):
+                msg = (
+                    "Invalid data structure from Scrutiny API: "
+                    f"expected dict, got {type(summary_data).__name__}"
+                )
+                raise UpdateFailed(msg)
+            return summary_data
