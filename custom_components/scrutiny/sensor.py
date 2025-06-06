@@ -56,7 +56,10 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         name="Status",
         icon="mdi:harddisk",
         device_class=SensorDeviceClass.ENUM,
-        options=[*SCRUTINY_DEVICE_STATUS_MAP.values(), SCRUTINY_DEVICE_STATUS_UNKNOWN],
+        options=[
+            *SCRUTINY_DEVICE_STATUS_MAP.values(),  # "Passed", "Failed (SMART)", "Failed (Scrutiny)"
+            SCRUTINY_DEVICE_STATUS_UNKNOWN,
+        ],
     ),
     SensorEntityDescription(
         key=ATTR_CAPACITY,
@@ -160,13 +163,12 @@ class ScrutinyDiskSensor(
             value = smart_details.get(ATTR_POWER_ON_HOURS)
         elif key == ATTR_DEVICE_STATUS:
             status_code = device_details.get(ATTR_DEVICE_STATUS)
-            value = (
-                SCRUTINY_DEVICE_STATUS_MAP.get(
+            if status_code is not None:
+                value = SCRUTINY_DEVICE_STATUS_MAP.get(
                     status_code, SCRUTINY_DEVICE_STATUS_UNKNOWN
                 )
-                if status_code is not None
-                else SCRUTINY_DEVICE_STATUS_UNKNOWN
-            )
+            else:
+                value = SCRUTINY_DEVICE_STATUS_UNKNOWN
         elif key == ATTR_CAPACITY:
             capacity_bytes = device_details.get(ATTR_CAPACITY)
             if capacity_bytes is not None:
