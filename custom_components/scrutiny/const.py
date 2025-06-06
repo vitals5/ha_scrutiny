@@ -1,43 +1,65 @@
-"""Constants for the Scrutiny integration."""
+"""Constants for the Scrutiny Home Assistant integration."""
+
+from __future__ import (
+    annotations,
+)  # Ensures compatibility with older Python versions for postponed evaluation of annotations  # noqa: E501
 
 from datetime import timedelta
 from logging import Logger, getLogger
 
+# Logger used for the Scrutiny integration.
+# getLogger(__package__) ensures that the logger is named after the integration's domain,  # noqa: E501
+# which is standard practice in Home Assistant (e.g., "homeassistant.components.scrutiny").  # noqa: E501
 LOGGER: Logger = getLogger(__package__)
 
-NAME = "Scrutiny"
-DOMAIN = "scrutiny"
-VERSION = "0.1.0"  # Synchronize with manifest.json
+# The domain of the integration, used as a unique identifier.
+# Must match the folder name of the integration.
+DOMAIN: str = "scrutiny"
 
-# Configuration and defaults
-CONF_HOST = "host"
-CONF_PORT = "port"
+# User-visible name of the integration.
+NAME: str = "Scrutiny"
 
-DEFAULT_PORT = 18080
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=5)
+# Version of the integration. Should be kept in sync with manifest.json.
+VERSION: str = "0.1.0"
 
-# Attributes from Scrutiny API
-ATTR_DEVICE = "device"
-ATTR_SMART = "smart"
-ATTR_DEVICE_NAME = "device_name"
-ATTR_MODEL_NAME = "model_name"
-ATTR_FIRMWARE = "firmware"
-ATTR_CAPACITY = "capacity"
-ATTR_DEVICE_STATUS = "device_status"
-ATTR_TEMPERATURE = "temp"
-ATTR_POWER_ON_HOURS = "power_on_hours"
+# Configuration keys used in the config flow and config entry data.
+CONF_HOST: str = "host"
+CONF_PORT: str = "port"
 
-# Scrutiny device status mapping for 'device_status' from /api/summary
-# Based on your latest information:
-# 0 = Passed
-# 1 = Failed SMART
-# 2 = Failed Scrutiny
-SCRUTINY_DEVICE_STATUS_MAP = {
-    0: "Passed",
-    1: "Failed (S.M.A.R.T.)",  # Präzisiert, da es spezifisch SMART-Fehler sind
-    2: "Failed (Scrutiny)",  # Neuer Status
+# Default values for configuration.
+DEFAULT_PORT: int = 8080  # Default port for the Scrutiny web server.
+DEFAULT_SCAN_INTERVAL: timedelta = timedelta(
+    minutes=5
+)  # Default interval for polling Scrutiny API.
+
+# String keys that correspond to fields in the Scrutiny API response.
+# Using constants for these helps avoid typos and makes refactoring easier.
+ATTR_DEVICE: str = "device"  # Key for the device details object in API response.
+ATTR_SMART: str = "smart"  # Key for the SMART details object in API response.
+# ATTR_WWN is not directly used from consts in sensor.py currently,
+# the 'wwn' variable is used instead. Keep if planning to use as a const key.
+# ATTR_WWN: str = "wwn"  # noqa: ERA001
+ATTR_DEVICE_NAME: str = "device_name"  # e.g., "sda", "sdb"
+ATTR_MODEL_NAME: str = "model_name"  # e.g., "WDC WD60EFPX-68C5ZN0"
+# ATTR_SERIAL_NUMBER is not directly used from consts in sensor.py currently.
+# ATTR_SERIAL_NUMBER: str = "serial_number"  # noqa: ERA001
+ATTR_FIRMWARE: str = "firmware"  # Firmware version of the disk.
+ATTR_CAPACITY: str = "capacity"  # Disk capacity in bytes.
+ATTR_DEVICE_STATUS: str = "device_status"  # Overall status code of the disk.
+ATTR_TEMPERATURE: str = "temp"  # Current temperature of the disk (from SMART).
+ATTR_POWER_ON_HOURS: str = "power_on_hours"  # Total power-on hours (from SMART).
+
+# Mapping of Scrutiny's 'device_status' codes to human-readable strings.
+# Based on community feedback and observations of the /api/summary endpoint.
+# It's crucial that these accurately reflect the API's meaning for these codes.
+SCRUTINY_DEVICE_STATUS_MAP: dict[int, str] = {
+    0: "Passed",  # Disk is considered healthy.
+    1: "Failed (SMART)",  # Disk has failed a SMART self-test or has critical SMART attr
+    2: "Failed (Scrutiny)",
 }
-SCRUTINY_DEVICE_STATUS_UNKNOWN = "Unknown"
+# Fallback status string if a status code is unknown or not present.
+SCRUTINY_DEVICE_STATUS_UNKNOWN: str = "Unknown"
 
-# Platforms
-PLATFORMS = ["sensor"]
+# List of Home Assistant platforms that this integration will set up.
+# Currently, only the "sensor" platform is supported.
+PLATFORMS: list[str] = ["sensor"]
