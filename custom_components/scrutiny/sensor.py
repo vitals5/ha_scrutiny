@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING  # For an empty TYPE_CHECKING block if needed
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -11,28 +11,53 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    EntityCategory,
     UnitOfInformation,
     UnitOfTemperature,
     UnitOfTime,
 )
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
-# Import the specific ConfigEntry type alias and Coordinator type
 from .const import (
+    ATTR_ATTRIBUTE_ID,
     ATTR_CAPACITY,
-    ATTR_DEVICE,
+    ATTR_DESCRIPTION,
     ATTR_DEVICE_NAME,
-    ATTR_DEVICE_STATUS,
+    ATTR_DISPLAY_NAME,
+    ATTR_FAILURE_RATE,
     ATTR_FIRMWARE,
+    ATTR_IDEAL_VALUE_DIRECTION,
+    ATTR_IS_CRITICAL,
     ATTR_MODEL_NAME,
+    ATTR_NORMALIZED_VALUE,
+    ATTR_POWER_CYCLE_COUNT,
     ATTR_POWER_ON_HOURS,
-    ATTR_SMART,
+    ATTR_RAW_STRING,
+    ATTR_RAW_VALUE,
+    ATTR_SMART_ATTRIBUTE_STATUS_CODE,
+    ATTR_SMART_ATTRS,
+    ATTR_SMART_OVERALL_STATUS,
+    ATTR_SMART_STATUS_MAP,
+    ATTR_SMART_STATUS_UNKNOWN,
+    ATTR_STATUS_REASON,
+    ATTR_SUMMARY_DEVICE_STATUS,
     ATTR_TEMPERATURE,
+    ATTR_THRESH,
+    ATTR_WHEN_FAILED,
+    ATTR_WORST,
     DOMAIN,
+    KEY_DETAILS_METADATA,
+    KEY_DETAILS_SMART_LATEST,
+    KEY_SUMMARY_DEVICE,
+    KEY_SUMMARY_SMART,
     LOGGER,
-    SCRUTINY_DEVICE_STATUS_MAP,
-    SCRUTINY_DEVICE_STATUS_UNKNOWN,
+    SCRUTINY_DEVICE_SUMMARY_STATUS_MAP,
+    SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN,
+)
+from .const import (
+    NAME as INTEGRATION_NAME,
 )
 from .coordinator import ScrutinyDataUpdateCoordinator
 
@@ -43,249 +68,406 @@ if TYPE_CHECKING:
     from . import ScrutinyConfigEntry
 
 
-# A tuple of SensorEntityDescription objects. Each description defines the static
-# properties of a sensor type that will be created for each disk.
-SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+MAIN_DISK_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
-        key=ATTR_TEMPERATURE,  # Used to fetch the correct data from the coordinator
-        name="Temperature",  # Default name suffix for the entity
+        key=ATTR_TEMPERATURE,
+        name="Temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        device_class=SensorDeviceClass.TEMPERATURE,  # Helps HA frontend display it
-        state_class=SensorStateClass.MEASUREMENT,  # Indicates the sensor meas a value
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=ATTR_POWER_ON_HOURS,
         name="Power On Hours",
         native_unit_of_measurement=UnitOfTime.HOURS,
-        icon="mdi:timer-sand",  # Material Design Icon for this sensor
-        state_class=SensorStateClass.TOTAL_INCREASING,  # Value accumulates over time
+        icon="mdi:timer-sand",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
-        key=ATTR_DEVICE_STATUS,
-        name="Status",
+        key=ATTR_SUMMARY_DEVICE_STATUS,
+        name="Overall Device Status",
         icon="mdi:harddisk",
-        # Sensor has a defined set of possible string states
         device_class=SensorDeviceClass.ENUM,
-        # 'options' provides the list of possible states for ENUM device class.
-        options=[*SCRUTINY_DEVICE_STATUS_MAP.values(), SCRUTINY_DEVICE_STATUS_UNKNOWN],
+        options=[
+            *SCRUTINY_DEVICE_SUMMARY_STATUS_MAP.values(),
+            SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN,
+        ],
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=ATTR_CAPACITY,
         name="Capacity",
-        # Value will be converted to GB
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         icon="mdi:database",
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=2,  # How many decimal places to show in UI
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=ATTR_POWER_CYCLE_COUNT,
+        name="Power Cycle Count",
+        icon="mdi:autorenew",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=ATTR_SMART_OVERALL_STATUS,
+        name="SMART Test Result",
+        icon="mdi:shield-check-outline",
+        device_class=SensorDeviceClass.ENUM,
+        options=[*ATTR_SMART_STATUS_MAP.values(), ATTR_SMART_STATUS_UNKNOWN],
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 
 
 async def async_setup_entry(
-    # The HomeAssistant instance (marked as unused by Ruff if
-    # not directly used, but required by signature)
     hass: HomeAssistant,  # noqa: ARG001
-    entry: ScrutinyConfigEntry,  # The config entry for this Scrutiny instance
-    async_add_entities: AddEntitiesCallback,  # Callback to add entities to HA
+    entry: ScrutinyConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """
-    Set up Scrutiny sensor entities from a config entry.
-
-    This function is called by Home Assistant (forwarded from __init__.py)
-    when the sensor platform for this integration's config entry is being set up.
-    It discovers disks from the coordinator's data and creates sensor entities for them.
-    """
-    # Retrieve the data update coordinator instance stored in the config entry.
+    """Set up Scrutiny sensor entities from a config entry."""
     coordinator: ScrutinyDataUpdateCoordinator = entry.runtime_data
 
-    # If the coordinator has no data (e.g., API error on first fetch, or no disks),
-    # log it and don't create any sensors yet.
-    # The sensors will be created if/when data becomes available via coordinator updates
-    # although this basic setup adds entities only once. For fully dynamic addition
-    # of new disks appearing later, a more complex listener pattern would be needed.
     if not coordinator.data:
         LOGGER.info(
-            "No disk data currently available from Scrutiny for %s; "
-            "sensor setup will be skipped for now.",
+            "No disk data from Scrutiny coordinator for %s; "
+            "sensor setup skipped for now.",
             entry.title,
         )
-        return  # Exit if no data to prevent errors
+        return
 
-    entities_to_add: list[ScrutinyDiskSensor] = []
+    entities_to_add: list[SensorEntity] = []
 
-    # Iterate over each disk found in the coordinator's data.
-    # The key 'wwn' is the World Wide Name of the disk, used as a unique identifier.
-    # 'disk_full_data' contains 'device' and 'smart' sub-dictionaries from the API.
-    for wwn, disk_full_data in coordinator.data.items():
-        device_api_data = disk_full_data.get(
-            ATTR_DEVICE, {}
-        )  # Get the 'device' part of API data
+    for wwn, aggregated_disk_data in coordinator.data.items():
+        summary_device_data = aggregated_disk_data.get(KEY_SUMMARY_DEVICE, {})
+        details_smart_latest = aggregated_disk_data.get(KEY_DETAILS_SMART_LATEST, {})
+        details_metadata = aggregated_disk_data.get(KEY_DETAILS_METADATA, {})
 
-        # Create a DeviceInfo object for each physical disk.
-        # This groups all sensors for a single disk under
-        # one "device" in Home Assistant's
-        # device registry, providing a better user experience.
+        device_info_name = (
+            f"{summary_device_data.get(ATTR_MODEL_NAME, 'Disk')} "
+            f"({summary_device_data.get(ATTR_DEVICE_NAME, wwn[-6:])})"
+        )
         device_info = DeviceInfo(
-            identifiers={
-                (DOMAIN, wwn)
-            },  # Unique identifier for this device within this domain
-            name=(
-                # e.g., "MyDiskModel (sda)"
-                f"{device_api_data.get(ATTR_MODEL_NAME, 'Disk')} "
-                # Fallback to last 6 chars of WWN
-                f"({device_api_data.get(ATTR_DEVICE_NAME, wwn[-6:])})"
-            ),
-            model=device_api_data.get(ATTR_MODEL_NAME),
-            manufacturer=device_api_data.get("manufacturer")
-            or "Scrutiny Reported",  # API might not provide manufacturer
-            sw_version=device_api_data.get(ATTR_FIRMWARE),
-            # hw_version could be ATTR_SERIAL_NUMBER if desired
-            via_device=(
-                DOMAIN,
-                entry.entry_id,
-            ),  # Links this disk device to the main integration "device"
+            identifiers={(DOMAIN, wwn)},
+            name=device_info_name,
+            model=summary_device_data.get(ATTR_MODEL_NAME),
+            manufacturer=summary_device_data.get("manufacturer") or INTEGRATION_NAME,
+            sw_version=summary_device_data.get(ATTR_FIRMWARE),
+            via_device=(DOMAIN, entry.entry_id),
         )
 
-        # For each defined sensor type, create a sensor instance for the current disk.
-        # Using list comprehension and extend for performance (Ruff PERF401).
         entities_to_add.extend(
-            ScrutinyDiskSensor(
-                coordinator=coordinator,
-                entity_description=description,
-                wwn=wwn,  # Pass the disk's WWN to the sensor
-                device_info=device_info,  # Link sensor to its HA device
-            )
-            for description in SENSOR_DESCRIPTIONS
+            [
+                ScrutinyMainDiskSensor(
+                    coordinator=coordinator,
+                    entity_description=description,
+                    wwn=wwn,
+                    device_info=device_info,
+                )
+                for description in MAIN_DISK_SENSOR_DESCRIPTIONS
+            ]
         )
 
-    # Add all created sensor entities to Home Assistant if any were generated.
+        smart_attributes_data = details_smart_latest.get(ATTR_SMART_ATTRS, {})
+        if isinstance(smart_attributes_data, dict):
+            for attr_id_str_key, attr_data_value in smart_attributes_data.items():
+                if not isinstance(attr_data_value, dict):
+                    LOGGER.warning(
+                        "Skipping SMART attribute %s for disk %s:"
+                        " unexpected data format %s",
+                        attr_id_str_key,
+                        wwn,
+                        type(attr_data_value),
+                    )
+                    continue
+
+                numeric_attr_id = attr_data_value.get(ATTR_ATTRIBUTE_ID)
+                if numeric_attr_id is None:
+                    LOGGER.warning(
+                        "SMART attribute for disk %s (key %s)"
+                        " is missing '%s'. Data: %s",
+                        wwn,
+                        attr_id_str_key,
+                        ATTR_ATTRIBUTE_ID,
+                        attr_data_value,
+                    )
+                    continue
+
+                attr_metadata = details_metadata.get(str(numeric_attr_id), {})
+
+                LOGGER.debug(
+                    "ASYNC_SETUP_ENTRY (WWN: %s, AttrID_str: %s, NumID: %s): "
+                    "Passing to SENSOR constructor-> attribute_metadata: %s (Type: %s)",
+                    wwn,
+                    attr_id_str_key,
+                    numeric_attr_id,
+                    str(attr_metadata)[:500],  # Logge einen Teil
+                    type(attr_metadata),
+                )
+
+                entities_to_add.append(
+                    ScrutinySmartAttributeSensor(
+                        coordinator=coordinator,
+                        wwn=wwn,
+                        device_info=device_info,
+                        attribute_id_str=attr_id_str_key,
+                        attribute_metadata=attr_metadata,
+                    )
+                )
+        else:
+            LOGGER.warning(
+                "SMART attributes data for disk %s is not a dict: %s",
+                wwn,
+                type(smart_attributes_data),
+            )
+
     if entities_to_add:
         async_add_entities(entities_to_add)
 
 
-class ScrutinyDiskSensor(
+class ScrutinyMainDiskSensor(
     CoordinatorEntity[ScrutinyDataUpdateCoordinator], SensorEntity
 ):
-    """
-    Represents a single sensor for a specific Scrutiny-monitored disk.
+    """Representation of a main sensor for a Scrutiny-monitored disk."""
 
-    This class inherits from CoordinatorEntity to automatically update when the
-    coordinator signals new data, and from SensorEntity to be a sensor.
-    """
-
-    # The _attr_has_entity_name attribute allows the entity's friendly name to be
-    # partly derived from the device name and partly
-    # from the SensorEntityDescription's name.
-    # e.g., "MyDiskModel (sda) Temperature"
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
         coordinator: ScrutinyDataUpdateCoordinator,
         entity_description: SensorEntityDescription,
-        wwn: str,  # The World Wide Name of the disk this sensor monitors
-        device_info: DeviceInfo,  # DeviceInfo linking this sensor to its HA device
+        wwn: str,
+        device_info: DeviceInfo,
     ) -> None:
-        """Initialize the disk sensor."""
-        # Call the superclass __init__ for CoordinatorEntity, passing the coordinator.
+        """Initialize the main disk sensor."""
         super().__init__(coordinator)
-        # Store the SensorEntityDescription, which contains
-        # static properties like name, key, unit.
         self.entity_description = entity_description
-        # Store the WWN of the disk this sensor instance is for.
         self._wwn = wwn
-
-        # Set device-specific attributes for Home Assistant.
         self._attr_device_info = device_info
-        # Construct a unique ID for this entity within Home Assistant.
-        # Format: <domain>_<disk_wwn>_<sensor_key>
         self._attr_unique_id = f"{DOMAIN}_{self._wwn}_{self.entity_description.key}"
-
-        # Update the sensor's state based on the initial data from the coordinator.
-        # This ensures the sensor has a value as
-        # soon as it's created, if data is available.
         self._update_sensor_state()
 
     @property
     def available(self) -> bool:
-        """
-        Return True if the sensor is available.
-
-        A sensor is available if:
-        1. The CoordinatorEntity itself is available (i.e.,
-        the coordinator is running and has recent data).
-        2. The coordinator's data is not None.
-        3. The data for this specific disk (identified by _wwn) exists
-        in the coordinator's data.
-        """
+        """Return True if sensor is available."""
         return (
             super().available
             and self.coordinator.data is not None
             and self._wwn in self.coordinator.data
+            and KEY_SUMMARY_DEVICE in self.coordinator.data[self._wwn]
         )
 
     def _update_sensor_state(self) -> None:
-        """
-        Update the sensor's native_value based on the latest coordinator data.
-
-        This method is called during initialization and by _handle_coordinator_update.
-        """
-        # If the sensor is not available (e.g., disk data missing), do nothing further.
-        # The 'available' property and CoordinatorEntity will handle HA state.
+        """Update the sensor's state from coordinator data."""
         if not self.available:
-            return  # self._attr_native_value will remain as is, or None if never set.
+            self._attr_native_value = None
+            return
 
-        # Retrieve the data for this specific disk from the coordinator.
-        # We know self._wwn is in self.coordinator.data due to the `available` check.
-        disk_data = self.coordinator.data[self._wwn]
+        data = self.coordinator.data[self._wwn]
+        summary_device_data = data.get(KEY_SUMMARY_DEVICE, {})
+        summary_smart_data = data.get(KEY_SUMMARY_SMART, {})
+        details_smart_latest = data.get(KEY_DETAILS_SMART_LATEST, {})
+        key = self.entity_description.key
+        value = None
 
-        device_details = disk_data.get(
-            ATTR_DEVICE, {}
-        )  # Default to empty dict if 'device' key is missing
-        smart_details = disk_data.get(
-            ATTR_SMART, {}
-        )  # Default to empty dict if 'smart' key is missing
-
-        key = (
-            self.entity_description.key
-        )  # The key for this sensor type (e.g., ATTR_TEMPERATURE)
-        value = None  # Default value if data extraction fails
-
-        # Extract the appropriate value based on the sensor's key.
         if key == ATTR_TEMPERATURE:
-            value = smart_details.get(ATTR_TEMPERATURE)
+            value = details_smart_latest.get(
+                ATTR_TEMPERATURE, summary_smart_data.get(ATTR_TEMPERATURE)
+            )
         elif key == ATTR_POWER_ON_HOURS:
-            value = smart_details.get(ATTR_POWER_ON_HOURS)
-        elif key == ATTR_DEVICE_STATUS:
-            status_code = device_details.get(ATTR_DEVICE_STATUS)
-            # Map the status code to a human-readable string.
-            # If status_code is None or not in the map, use UNKNOWN.
+            value = details_smart_latest.get(
+                ATTR_POWER_ON_HOURS, summary_smart_data.get(ATTR_POWER_ON_HOURS)
+            )
+        elif key == ATTR_SUMMARY_DEVICE_STATUS:
+            status_code = summary_device_data.get(ATTR_SUMMARY_DEVICE_STATUS)
             value = (
-                SCRUTINY_DEVICE_STATUS_MAP.get(
-                    status_code, SCRUTINY_DEVICE_STATUS_UNKNOWN
+                SCRUTINY_DEVICE_SUMMARY_STATUS_MAP.get(
+                    status_code, SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN
                 )
                 if status_code is not None
-                else SCRUTINY_DEVICE_STATUS_UNKNOWN
+                else SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN
             )
         elif key == ATTR_CAPACITY:
-            capacity_bytes = device_details.get(ATTR_CAPACITY)
+            capacity_bytes = summary_device_data.get(ATTR_CAPACITY)
             if capacity_bytes is not None:
-                # Convert bytes to Gibibytes (GiB) for display.
-                # 1 GiB = 1024^3 bytes.
                 value = round(capacity_bytes / (1024**3), 2)
-
-        # Set the sensor's native value.
+        elif key == ATTR_POWER_CYCLE_COUNT:
+            value = details_smart_latest.get(ATTR_POWER_CYCLE_COUNT)
+        elif key == ATTR_SMART_OVERALL_STATUS:
+            status_code = details_smart_latest.get(ATTR_SMART_OVERALL_STATUS)
+            value = (
+                ATTR_SMART_STATUS_MAP.get(status_code, ATTR_SMART_STATUS_UNKNOWN)
+                if status_code is not None
+                else ATTR_SMART_STATUS_UNKNOWN
+            )
         self._attr_native_value = value
 
     def _handle_coordinator_update(self) -> None:
-        """
-        Handle data updates from the coordinator.
-
-        This method is called by the CoordinatorEntity base class whenever the
-        coordinator successfully fetches new data.
-        """
-        # Re-calculate the sensor's state based on the new data.
+        """Handle updated data from the coordinator."""
         self._update_sensor_state()
-        # Tell Home Assistant that the sensor's state may have
-        # changed and it needs to be re-rendered.
+        self.async_write_ha_state()
+
+
+class ScrutinySmartAttributeSensor(
+    CoordinatorEntity[ScrutinyDataUpdateCoordinator], SensorEntity
+):
+    """Representation of a single SMART attribute for a Scrutiny-monitored disk."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = False  # We set _attr_name directly
+
+    def __init__(
+        self,
+        coordinator: ScrutinyDataUpdateCoordinator,
+        wwn: str,
+        device_info: DeviceInfo,
+        attribute_id_str: str,
+        attribute_metadata: dict[str, Any],
+    ) -> None:
+        """Initialize the SMART attribute sensor."""
+        super().__init__(coordinator)
+        self._wwn = wwn
+        self._attribute_id_str = attribute_id_str
+        self._attribute_metadata = attribute_metadata
+        self._attr_device_info = device_info
+
+        LOGGER.debug(
+            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Full Metadata received: %s",
+            wwn,
+            attribute_id_str,
+            attribute_metadata,
+        )
+
+        display_name_meta = self._attribute_metadata.get(ATTR_DISPLAY_NAME)
+
+        LOGGER.debug(
+            """SMART ATTR INIT (WWN: %s, AttrID_str: %s):
+            Extracted display_name_meta: %s (Type: %s)""",
+            wwn,
+            attribute_id_str,
+            display_name_meta,
+            type(display_name_meta),
+        )
+
+        # Use the extracted display_name for the entity name suffix
+        self.entity_name_suffix = (
+            display_name_meta
+            if display_name_meta
+            else f"Attribute {self._attribute_id_str}"
+        )
+
+        self._attr_name = f"SMART {self._attribute_id_str}: {self.entity_name_suffix}"
+
+        LOGGER.debug(
+            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Final _attr_name: %s",
+            wwn,
+            attribute_id_str,
+            self._attr_name,
+        )
+
+        slugified_name_part = slugify(
+            self.entity_name_suffix
+        )  # Slugify the suffix part
+        unique_id_base = f"{DOMAIN}_{self._wwn}_smart_{self._attribute_id_str}"
+        self._attr_unique_id = f"{unique_id_base}_{slugified_name_part}"
+
+        LOGGER.debug(
+            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Final unique_id: %s",
+            wwn,
+            attribute_id_str,
+            self._attr_unique_id,
+        )
+
+        self.entity_description = SensorEntityDescription(
+            key=f"smart_attr_{self._attribute_id_str}",
+            # For consistency, not directly used for entity name
+            name=self.entity_name_suffix,
+            device_class=SensorDeviceClass.ENUM,
+            options=[*ATTR_SMART_STATUS_MAP.values(), ATTR_SMART_STATUS_UNKNOWN],
+        )
+
+        self._update_state_and_attributes()
+
+    @property
+    def available(self) -> bool:
+        """Return True if sensor is available."""
+        if not (
+            super().available
+            and self.coordinator.data is not None
+            and self._wwn in self.coordinator.data
+        ):
+            return False
+
+        disk_agg_data = self.coordinator.data[self._wwn]
+        latest_smart = disk_agg_data.get(KEY_DETAILS_SMART_LATEST)
+        if not isinstance(latest_smart, dict):
+            return False
+
+        attrs = latest_smart.get(ATTR_SMART_ATTRS)
+        if not isinstance(attrs, dict):
+            return False
+
+        return self._attribute_id_str in attrs
+
+    def _get_current_attribute_data(self) -> dict[str, Any] | None:
+        """Safely retrieve the current data for this specific SMART attribute."""
+        if not self.available:
+            return None
+        # If available is true, this path should be safe.
+        return self.coordinator.data[self._wwn][KEY_DETAILS_SMART_LATEST][
+            ATTR_SMART_ATTRS
+        ].get(self._attribute_id_str)
+
+    def _update_state_and_attributes(self) -> None:
+        """Update the sensor's state and attributes from current attribute data."""
+        current_attr_data = self._get_current_attribute_data()
+
+        if not current_attr_data:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+            return
+
+        status_code = current_attr_data.get(ATTR_SMART_ATTRIBUTE_STATUS_CODE)
+        self._attr_native_value = (
+            ATTR_SMART_STATUS_MAP.get(status_code, ATTR_SMART_STATUS_UNKNOWN)
+            if status_code is not None
+            else ATTR_SMART_STATUS_UNKNOWN
+        )
+
+        attributes: dict[str, Any] = {
+            ATTR_ATTRIBUTE_ID: current_attr_data.get(ATTR_ATTRIBUTE_ID),
+            "attribute_key_id": self._attribute_id_str,
+            ATTR_RAW_VALUE: current_attr_data.get(ATTR_RAW_VALUE),
+            ATTR_RAW_STRING: current_attr_data.get(ATTR_RAW_STRING),
+            ATTR_NORMALIZED_VALUE: current_attr_data.get(ATTR_NORMALIZED_VALUE),
+            ATTR_WORST: current_attr_data.get(ATTR_WORST),
+            ATTR_THRESH: current_attr_data.get(ATTR_THRESH),
+            ATTR_WHEN_FAILED: current_attr_data.get(ATTR_WHEN_FAILED),
+            ATTR_STATUS_REASON: current_attr_data.get(ATTR_STATUS_REASON),
+            ATTR_FAILURE_RATE: current_attr_data.get(ATTR_FAILURE_RATE),
+            ATTR_DESCRIPTION: self._attribute_metadata.get(ATTR_DESCRIPTION),
+            ATTR_IS_CRITICAL: self._attribute_metadata.get(ATTR_IS_CRITICAL),
+            ATTR_IDEAL_VALUE_DIRECTION: self._attribute_metadata.get(
+                ATTR_IDEAL_VALUE_DIRECTION
+            ),
+            "attribute_display_name": self._attribute_metadata.get(ATTR_DISPLAY_NAME),
+        }
+        self._attr_extra_state_attributes = {
+            k: v for k, v in attributes.items() if v is not None
+        }
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if not self.available:
+            if self._attr_native_value is not None:
+                self._attr_native_value = None
+                self._attr_extra_state_attributes = {}
+                self.async_write_ha_state()
+            return
+
+        self._update_state_and_attributes()
         self.async_write_ha_state()
