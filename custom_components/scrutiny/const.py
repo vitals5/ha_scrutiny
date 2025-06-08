@@ -5,108 +5,144 @@ from __future__ import annotations
 from datetime import timedelta
 from logging import Logger, getLogger
 
+# Logger instance for the integration.
 LOGGER: Logger = getLogger(__package__)
 
+# Domain of the integration, used by Home Assistant.
 DOMAIN: str = "scrutiny"
-NAME: str = "Scrutiny"  # User-visible name, also used for default manufacturer
+# User-visible name of the integration. Also used as default manufacturer for devices.
+NAME: str = "Scrutiny"
+# Version of the integration.
 VERSION: str = "0.1.0"
 
-# Configuration keys
-CONF_HOST: str = "host"
-CONF_PORT: str = "port"
+# Configuration keys used in config_flow.py and __init__.py.
+CONF_HOST: str = "host"  # Key for the Scrutiny server host.
+CONF_PORT: str = "port"  # Key for the Scrutiny server port.
 
-# Default values
-DEFAULT_PORT: int = 8080
-DEFAULT_SCAN_INTERVAL: timedelta = timedelta(minutes=5)
+# Default values for configuration.
+DEFAULT_PORT: int = 8080  # Default port for the Scrutiny API.
+DEFAULT_SCAN_INTERVAL: timedelta = timedelta(
+    minutes=5
+)  # Default interval for polling data.
 
 # --- Keys for navigating the aggregated data structure in the coordinator ---
-# These are used in sensor.py to access specific parts of the data
-# that the coordinator prepares (e.g., coordinator.data[wwn][KEY_SUMMARY_DEVICE])
+# These keys are used internally by the coordinator to structure the data fetched
+# from the Scrutiny API and by sensor.py to access specific parts of this data.
+# For example, coordinator.data[wwn][KEY_SUMMARY_DEVICE] would access
+# the device summary for a disk with a given WWN.
+
+# Key for the 'device' part of the summary data for a disk.
 KEY_SUMMARY_DEVICE: str = "summary_device"
+# Key for the 'smart' part of the summary data for a disk.
 KEY_SUMMARY_SMART: str = "summary_smart"
+# Key for the 'device' part of the detailed data for a disk.
 KEY_DETAILS_DEVICE: str = "details_device"
+# Key for the latest SMART snapshot from the detailed data for a disk.
 KEY_DETAILS_SMART_LATEST: str = "details_smart_latest"
+# Key for the metadata of SMART attributes from the detailed data for a disk.
 KEY_DETAILS_METADATA: str = "details_smart_attributes_metadata"
 
 
 # --- Attribute Keys from Scrutiny API responses ---
+# These constants map to the field names found in the JSON responses
+# from the Scrutiny API.
 
-# Keys for general disk information (often from both summary and details)
-# ATTR_WWN is used as the primary key for disks in our data structures.
+# Keys for general disk information
+#  (often present in both summary and details API responses).
+# ATTR_WWN is the World Wide Name, used as the primary identifier for disks.
 # It's also a field within the device object from the API.
-ATTR_WWN: str = (
-    "wwn"  # Retained for clarity, even if 'wwn' variable is often used directly
-)
-ATTR_DEVICE_NAME: str = "device_name"
-ATTR_MODEL_NAME: str = "model_name"
-ATTR_FIRMWARE: str = "firmware"
-ATTR_CAPACITY: str = "capacity"  # In bytes, from summary and details device sections
-ATTR_SERIAL_NUMBER: str = "serial_number"  # Added back, can be useful for DeviceInfo
+ATTR_WWN: str = "wwn"  # World Wide Name of the disk.
+ATTR_DEVICE_NAME: str = "device_name"  # e.g., /dev/sda
+ATTR_MODEL_NAME: str = "model_name"  # e.g., "Samsung SSD 860 EVO"
+ATTR_FIRMWARE: str = "firmware"  # Firmware version of the disk.
+ATTR_CAPACITY: str = "capacity"  # Disk capacity in bytes.
+ATTR_SERIAL_NUMBER: str = "serial_number"  # Serial number of the disk.
 
-# Keys specifically from the '/api/summary' -> 'device' object
+# Keys specifically from the '/api/summary' -> 'device' object of a disk.
 ATTR_SUMMARY_DEVICE_STATUS: str = (
-    "device_status"  # The 'device_status' field from the summary
+    "device_status"  # Overall status of the device from the summary.
 )
 
-# Keys from SMART data (summary and/or latest details snapshot)
-ATTR_TEMPERATURE: str = "temp"
-ATTR_POWER_ON_HOURS: str = "power_on_hours"
-ATTR_POWER_CYCLE_COUNT: str = "power_cycle_count"  # From details_smart_latest
+# Keys from SMART data, potentially found
+#  in both summary and/or latest details snapshot.
+ATTR_TEMPERATURE: str = "temp"  # Current temperature of the disk (often in Celsius).
+ATTR_POWER_ON_HOURS: str = "power_on_hours"  # Total power-on hours for the disk.
+ATTR_POWER_CYCLE_COUNT: str = (
+    "power_cycle_count"  # Number of power cycles. (From details_smart_latest)
+)
 
-# Keys related to the structure of '/api/device/{wwn}/details' response
-ATTR_DEVICE: str = "device"  # The 'device' object within the details payload
-ATTR_SMART_RESULTS: str = "smart_results"  # Array of SMART snapshots in details
-ATTR_METADATA: str = "metadata"  # Metadata for SMART attributes in details
+# Keys related to the structure of the '/api/device/{wwn}/details' API response.
+ATTR_DEVICE: str = "device"  # The 'device' object within the details payload.
+ATTR_SMART_RESULTS: str = (
+    "smart_results"  # Array of SMART snapshots in the details payload.
+)
+ATTR_METADATA: str = "metadata"  # Metadata for SMART attributes in the details payload.
 
-# Keys within smart_results[0] (latest SMART snapshot from details)
-ATTR_SMART_ATTRS: str = "attrs"  # The dictionary of individual SMART attributes
+# Keys within a single SMART snapshot (e.g., smart_results[0] from details).
+ATTR_SMART_ATTRS: str = "attrs"  # Dictionary of individual SMART attributes.
 ATTR_SMART_OVERALL_STATUS: str = (
-    "Status"  # Capital 'S', overall status for this SMART snapshot
+    "Status"  # Overall SMART status for this snapshot (Note: Capital 'S').
 )
-ATTR_SMART: str = "smart"  # Key for smart overview in summary
-# Keys within each individual SMART attribute object
-# (e.g., smart_results[0].attrs[ATTR_ATTRIBUTE_ID])
-ATTR_ATTRIBUTE_ID: str = "attribute_id"
-ATTR_NORMALIZED_VALUE: str = (
-    "value"  # Renamed from ATTR_VALUE to avoid conflict with general 'value'
+ATTR_SMART: str = (
+    "smart"  # Key for the 'smart' object within the summary payload for a disk.
 )
-ATTR_THRESH: str = "thresh"
-ATTR_WORST: str = "worst"
-ATTR_RAW_VALUE: str = "raw_value"
-ATTR_RAW_STRING: str = "raw_string"
-ATTR_WHEN_FAILED: str = "when_failed"
-ATTR_SMART_ATTRIBUTE_STATUS_CODE: str = (
-    "status"  # Status code of a single SMART attr (0, 1, 2, 4)
-)
-ATTR_FAILURE_RATE: str = "failure_rate"
-ATTR_STATUS_REASON: str = "status_reason"
 
-# Keys within ATTR_METADATA (for each attribute_id)
-ATTR_DISPLAY_NAME: str = "display_name"  # e.g., "Reallocated Sectors Count"
-ATTR_IDEAL_VALUE_DIRECTION: str = "ideal"  # e.g., "low", "high", ""
-ATTR_IS_CRITICAL: str = "critical"  # boolean: true if attribute is critical
-ATTR_DESCRIPTION: str = "description"  # Text description of the attribute
+# Keys within each individual SMART attribute object
+# (e.g., smart_results[0].attrs[<attribute_id_str>]).
+ATTR_ATTRIBUTE_ID: str = (
+    "attribute_id"  # Numeric ID of the SMART attribute (e.g., 5, 194).
+)
+ATTR_NORMALIZED_VALUE: str = "value"  # Current normalized value of the SMART attribute.
+ATTR_THRESH: str = "thresh"  # Threshold value for the SMART attribute.
+ATTR_WORST: str = "worst"  # Worst recorded normalized value for the SMART attribute.
+ATTR_RAW_VALUE: str = "raw_value"  # Raw value of the SMART attribute.
+ATTR_RAW_STRING: str = "raw_string"  # Raw value as a string, often more human-readable.
+ATTR_WHEN_FAILED: str = (
+    "when_failed"  # Indicates when/if the attribute failed (e.g., "-", "FAILING_NOW").
+)
+# Status code of a single SMART attribute (e.g., 0 for Passed, 1 for Failed).
+ATTR_SMART_ATTRIBUTE_STATUS_CODE: str = "status"
+ATTR_FAILURE_RATE: str = "failure_rate"  # Predicted failure rate, if available.
+ATTR_STATUS_REASON: str = (
+    "status_reason"  # Reason for the current status of the attribute.
+)
+
+# Keys within ATTR_METADATA (metadata for each SMART attribute_id).
+ATTR_DISPLAY_NAME: str = (
+    "display_name"  # Human-readable name (e.g., "Reallocated Sectors Count").
+)
+ATTR_IDEAL_VALUE_DIRECTION: str = (
+    "ideal"  # Direction of ideal values (e.g., "low", "high", "").
+)
+ATTR_IS_CRITICAL: str = (
+    "critical"  # Boolean: true if the attribute is considered critical.
+)
+ATTR_DESCRIPTION: str = "description"  # Text description of the SMART attribute.
 
 # --- Status Mappings ---
 
-# For 'device_status' from /api/summary
+# Mapping for 'device_status' from the '/api/summary' endpoint.
 SCRUTINY_DEVICE_SUMMARY_STATUS_MAP: dict[int, str] = {
-    0: "Passed",
-    1: "Failed (SMART)",
-    2: "Failed (Scrutiny)",
+    0: "Passed",  # Device is considered healthy.
+    1: "Failed (SMART)",  # Device failed due to SMART attributes.
+    2: "Failed (Scrutiny)",  # Device failed based on Scrutiny's own checks.
 }
-SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN: str = "Unknown Summary Status"
+SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN: str = (
+    "Unknown Summary Status"  # Fallback for unknown status codes.
+)
 
-# For 'status' of individual SMART attributes from /api/device/.../details
-# -> smart_results[0].attrs[id].status
+# Mapping for the 'status' of individual SMART attributes
+# from '/api/device/.../details' -> smart_results[0].attrs[id].status.
 ATTR_SMART_STATUS_MAP: dict[int, str] = {
-    0: "Passed",
-    1: "Failed (S.M.A.R.T.)",
-    2: "Warning (Scrutiny)",
-    4: "Failed (Scrutiny)",
+    0: "Passed",  # Attribute is within normal parameters.
+    1: "Failed (S.M.A.R.T.)",  # Attribute has failed according to S.M.A.R.T.
+    2: "Warning (Scrutiny)",  # Scrutiny has issued a warning for this attribute.
+    4: "Failed (Scrutiny)",  # Scrutiny has marked this attribute as failed.
 }
-ATTR_SMART_STATUS_UNKNOWN: str = "Unknown Attribute Status"
+ATTR_SMART_STATUS_UNKNOWN: str = (
+    "Unknown Attribute Status"  # Fallback for unknown attribute status codes.
+)
 
 
-# Platforms to set up
+# Platforms to set up for this integration (e.g., "sensor", "binary_sensor").
 PLATFORMS: list[str] = ["sensor"]
