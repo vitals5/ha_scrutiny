@@ -15,6 +15,29 @@ ignore = [
     "ISC001", # incompatible with formatter
 ]
 
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "tests",
+]
+
 [lint.flake8-pytest-style]
 fixture-parentheses = false
 
@@ -23,3 +46,4 @@ keep-runtime-typing = true
 
 [lint.mccabe]
 max-complexity = 25
+

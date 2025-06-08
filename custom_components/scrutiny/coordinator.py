@@ -159,8 +159,10 @@ class ScrutinyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
             # Sensors relying on this data will then report
             # as unavailable or with default values.
             self.logger.warning(
-                """Failed to fetch details for disk %s: %s.
-                 Summary data will be used if available.""",
+                (
+                    "Failed to fetch details for disk %s: %s. "
+                    "Summary data will be used if available."
+                ),
                 wwn_key,
                 full_detail_response,
             )
@@ -176,14 +178,18 @@ class ScrutinyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
             actual_payload = full_detail_response.get("data", {})
 
             LOGGER.debug(
-                """COORDINATOR _process_detail_results (WWN: %s):
-                 Full detail response: %s""",
+                (
+                    "COORDINATOR _process_detail_results (WWN: %s): "
+                    "Full detail response: %s"
+                ),
                 wwn_key,
                 str(full_detail_response)[:500],  # Log first 500 chars
             )
             LOGGER.debug(
-                """COORDINATOR _process_detail_results (WWN: %s):
-                 Extracted 'actual_payload' (for device/smart_results): %s""",
+                (
+                    "COORDINATOR _process_detail_results (WWN: %s): "
+                    "Extracted 'actual_payload' (for device/smart_results): %s"
+                ),
                 wwn_key,
                 str(actual_payload)[:500],  # Log first 500 chars
             )
@@ -248,6 +254,7 @@ class ScrutinyDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
 
         """  # noqa: D205, E501
         self.logger.debug("Starting Scrutiny data update cycle.")
+
         # This dictionary will hold all data fetched during this specific update run.
         current_run_aggregated_data: dict[str, dict[str, Any]] = {}
 

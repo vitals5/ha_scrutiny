@@ -1,3 +1,4 @@
+# api.py
 """API client for interacting with a Scrutiny web server."""
 
 from __future__ import annotations
@@ -63,21 +64,24 @@ def _construct_api_exception_message(
 
 
 def _raise_scrutiny_api_response_error(
-    message: str, original_exception: Exception
+    message: str,
+    original_exception: Exception | None = None,  # Made original_exception optional
 ) -> NoReturn:
     """
     Helper function to construct and raise a ScrutinyApiResponseError.
-    It ensures that the original exception is chained.
+    It ensures that the original exception is chained if provided.
 
     Args:
         message: The error message.
-        original_exception: The exception that caused this error.
+        original_exception: The exception that caused this error, if any.
 
     Raises:
         ScrutinyApiResponseError: Always raises this exception.
 
     """  # noqa: D205, D401
-    raise ScrutinyApiResponseError(message) from original_exception
+    if original_exception:
+        raise ScrutinyApiResponseError(message) from original_exception
+    raise ScrutinyApiResponseError(message)
 
 
 def _raise_scrutiny_api_error(message: str, original_exception: Exception) -> NoReturn:
@@ -183,192 +187,165 @@ class ScrutinyApiClient:
             api_err_msg = _construct_api_exception_message(
                 f"Scrutiny API returned an error ({exc.status})", error=exc
             )
+            # Pass the original exception to chain it
             _raise_scrutiny_api_response_error(api_err_msg, exc)
-        except aiohttp.ClientError as exc:
+        except aiohttp.ClientError as exc:  # Catch other aiohttp client errors
             # Handle other aiohttp client errors.
             generic_msg = _construct_api_exception_message(
-                "A client error occurred with Scrutiny", url
+                "A client error occurred with Scrutiny", url, error=exc
             )
             raise ScrutinyApiConnectionError(generic_msg) from exc
 
     async def async_get_summary(self) -> dict[str, dict]:
-        """
-        Fetch the summary data from the Scrutiny '/api/summary' endpoint.
-        The summary typically contains a dictionary where keys are WWNs and
-        values are objects with 'device' and 'smart' information for each disk.
-
-        Returns:
-            A dictionary containing the 'summary' part of the API response data,
-            which maps WWNs to disk summary information.
-
-        Raises:
-            ScrutinyApiResponseError: If the response is not valid JSON,
-                                     if 'success' is not true in the response,
-                                     or if the 'summary' data field is missing/invalid.
-            ScrutinyApiConnectionError: Inherited from _request if connection fails.
-            ScrutinyApiError: For other unexpected errors during processing.
-
-        """  # noqa: D205
-        response: aiohttp.ClientResponse | None = None
+        """Fetch the summary data from the Scrutiny '/api/summary' endpoint."""
+        response_obj: aiohttp.ClientResponse | None = None  # Renamed to avoid conflict
         try:
-            response = await self._request("get", "summary")
-            content_type = response.headers.get("Content-Type", "")
+            # _request can raise ScrutinyApiConnectionError, ScrutinyApiAuthError,
+            # or ScrutinyApiResponseError (for HTTP status codes >= 400)
+            response_obj = await self._request("get", "summary")
+            content_type = response_obj.headers.get("Content-Type", "")
 
             if "application/json" not in content_type:
-                # Log and raise if the content type is not JSON.
-                text_response = await response.text()
+                text_response = await response_obj.text()
                 LOGGER.error(
-                    """Unexpected content type from Scrutiny API
-                     (summary): %s. Response: %s""",
+                    "Unexpected content type from Scrutiny "
+                    "API (summary): %s. Response: %s",
                     content_type,
-                    text_response[:200],  # Log first 200 chars of response
+                    text_response[:200],
                 )
                 msg = f"Expected JSON from Scrutiny summary, got {content_type}"
-                # This raise is correct, it's an issue with the response format.
-                raise ScrutinyApiResponseError(msg)  # noqa: TRY301
+                # No original exception here, it's a format issue we found
+                _raise_scrutiny_api_response_error(msg)
 
-            # Attempt to parse the JSON response.
-            data: dict = await response.json()
+            data: dict = await response_obj.json()  # Can raise json.JSONDecodeError
 
         except json.JSONDecodeError as exc:
-            # Handle errors in decoding JSON.
             raw_response_text = "Could not retrieve raw response for summary."
-            if response:
+            if response_obj:
                 try:
-                    raw_response_text = await response.text()
+                    raw_response_text = await response_obj.text()
                     LOGGER.error(
                         "Failed to decode JSON from Scrutiny summary. Raw response: %s",
-                        raw_response_text[:500],  # Log first 500 chars
+                        raw_response_text[:500],
                     )
-                except Exception:  # pylint: disable=broad-except # noqa: BLE001
+                except Exception:  # noqa: BLE001
                     LOGGER.error(
-                        """Failed to decode JSON for summary
-                        and also failed to get raw text."""
+                        "Failed to decode JSON for summary "
+                        "and also failed to get raw text."
                     )
-            else:
+            else:  # Should not happen if _request succeeded before json parsing
                 LOGGER.error(
-                    """Failed to decode JSON for summary,
-                     no response object was available."""
+                    "Failed to decode JSON for summary, "
+                    "no response object was available."
                 )
-
             msg = "Invalid JSON response received from Scrutiny summary"
             _raise_scrutiny_api_response_error(msg, exc)
-        except ScrutinyApiError:
-            # Re-raise ScrutinyApiError and its subclasses if already caught.
+
+        # Specific Scrutiny API errors from _request should be re-raised directly
+        except ScrutinyApiConnectionError:
             raise
-        except Exception as exc:  # pylint: disable=broad-except # noqa: BLE001
-            # Handle any other unexpected errors.
+        except ScrutinyApiAuthError:
+            raise
+        except ScrutinyApiResponseError:
+            raise
+        # Catch any other truly unexpected error during the try block
+        except Exception as exc:  # noqa: BLE001
             LOGGER.exception(
                 "An unexpected error occurred while processing Scrutiny summary data"
             )
             msg = "Unexpected error occurred while processing Scrutiny summary"
-            _raise_scrutiny_api_error(msg, exc)
-        else:
-            # Process the successfully parsed JSON data.
-            LOGGER.debug(
-                "Scrutiny API summary response data: %s", str(data)[:1000]
-            )  # Log first 1000 chars
+            _raise_scrutiny_api_error(
+                msg, exc
+            )  # This becomes a generic ScrutinyApiError
+        # No 'else' block needed here, if an exception occurred, it's handled above.
+        # If no exception, we proceed to validate 'data'.
 
-            # Validate the structure of the response.
-            if not isinstance(data, dict) or not data.get("success"):
-                err_msg = (
-                    "Scrutiny API summary call not successful or unexpected format: "
-                    f"{str(data)[:200]}"  # Log first 200 chars
-                )
-                raise ScrutinyApiResponseError(err_msg)
+        # Process the successfully parsed JSON data.
+        LOGGER.debug("Scrutiny API summary response data: %s", str(data)[:1000])
 
-            # Extract the actual summary data.
-            summary_data = data.get("data", {}).get("summary")
-            if not isinstance(summary_data, dict):
-                err_msg = (
-                    "Scrutiny API 'summary' data field is missing or not a dictionary: "
-                    f"{str(data)[:200]}"  # Log first 200 chars
-                )
-                raise ScrutinyApiResponseError(err_msg)
+        if not isinstance(data, dict) or not data.get("success"):
+            err_msg = (
+                "Scrutiny API summary call not successful or unexpected format: "
+                f"{str(data)[:200]}"
+            )
+            # No original exception here, it's a validation of the parsed data
+            _raise_scrutiny_api_response_error(err_msg)
 
-            return summary_data
+        summary_data = data.get("data", {}).get("summary")
+        if not isinstance(summary_data, dict):
+            err_msg = (
+                "Scrutiny API 'summary' data field is missing or not a dictionary: "
+                f"{str(data)[:200]}"
+            )
+            _raise_scrutiny_api_response_error(err_msg)
+
+        return summary_data
 
     async def async_get_device_details(self, wwn: str) -> dict[str, Any]:
-        """
-        Fetch detailed information for a specific disk from Scrutiny's
-        '/api/device/{wwn}/details' endpoint.
-
-        Args:
-            wwn: The World Wide Name of the disk.
-
-        Returns:
-            A dictionary representing the entire successful JSON response from the API.
-            This typically includes 'data' (containing 'device' and 'smart_results')
-            and 'metadata' (for SMART attribute descriptions).
-
-        Raises:
-            ScrutinyApiResponseError: If API response is not valid JSON,
-                                     if `success` is not true in the response,
-                                     or if essential keys like 'data' or 'metadata' are missing.
-            ScrutinyApiConnectionError: Inherited from _request if connection fails.
-            ScrutinyApiError: For other unexpected errors during processing.
-
-        """  # noqa: D205, E501
+        """Fetch detailed information for a specific disk."""
         endpoint = f"device/{wwn}/details"
-        response: aiohttp.ClientResponse | None = None
+        response_obj: aiohttp.ClientResponse | None = None  # Renamed
         LOGGER.debug("Requesting Scrutiny device details for WWN: %s", wwn)
 
         try:
-            response = await self._request("get", endpoint)
-            content_type = response.headers.get("Content-Type", "")
+            response_obj = await self._request("get", endpoint)
+            content_type = response_obj.headers.get("Content-Type", "")
 
             if "application/json" not in content_type:
-                # Log and raise if the content type is not JSON.
-                msg = f"Expected JSON from Scrutiny device details, got {content_type}"
-                raise ScrutinyApiResponseError(msg)  # noqa: TRY301
+                msg = (
+                    "Expected JSON from Scrutiny "
+                    f"device details (WWN: {wwn}), got {content_type}"
+                )
+                _raise_scrutiny_api_response_error(msg)
 
-            # Parse the entire JSON response.
-            full_api_response_data: dict = await response.json()
+            full_api_response_data: dict = await response_obj.json()
 
         except json.JSONDecodeError as exc:
-            # Handle errors in decoding JSON.
-            msg = f"""Invalid JSON response received from
-             Scrutiny device details (WWN: {wwn})"""
+            msg = (
+                "Invalid JSON response received from "
+                f"Scrutiny device details (WWN: {wwn})"
+            )
             _raise_scrutiny_api_response_error(msg, exc)
-        except ScrutinyApiError:
-            # Re-raise ScrutinyApiError and its subclasses.
+
+        except ScrutinyApiConnectionError:
             raise
-        except Exception as exc:  # pylint: disable=broad-except # noqa: BLE001
-            # Handle any other unexpected errors.
+        except ScrutinyApiAuthError:
+            raise
+        except ScrutinyApiResponseError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception(
+                "Unexpected error processing Scrutiny device details (WWN: %s)", wwn
+            )
             msg = f"Unexpected error processing Scrutiny device details (WWN: {wwn})"
             _raise_scrutiny_api_error(msg, exc)
-        else:
-            # Process the successfully parsed JSON data.
-            LOGGER.debug(
-                "Scrutiny API device details FULL response for WWN %s: %s",
-                wwn,
-                str(full_api_response_data)[:2000],  # Log first 2000 chars
+
+        # Process the successfully parsed JSON data.
+        LOGGER.debug(
+            "Scrutiny API device details FULL response for WWN %s: %s",
+            wwn,
+            str(full_api_response_data)[:2000],
+        )
+
+        if not isinstance(
+            full_api_response_data, dict
+        ) or not full_api_response_data.get("success"):
+            err_msg = (
+                "Scrutiny API device details call not successful or unexpected format "
+                f"(WWN: {wwn}): {str(full_api_response_data)[:200]}"
             )
+            _raise_scrutiny_api_response_error(err_msg)
 
-            # Validate the structure of the response.
-            if not isinstance(
-                full_api_response_data, dict
-            ) or not full_api_response_data.get("success"):
-                err_msg = (
-                    """Scrutiny API device details call
-                    not successful or unexpected format """
-                    # Log first 200 chars
-                    f"(WWN: {wwn}): {str(full_api_response_data)[:200]}"
-                )
-                raise ScrutinyApiResponseError(err_msg)
+        if (
+            "data" not in full_api_response_data
+            or ATTR_METADATA not in full_api_response_data
+        ):
+            err_msg = (
+                "Scrutiny API device details "
+                "response is missing 'data' or 'metadata' key "
+                f"(WWN: {wwn}): Keys present: {list(full_api_response_data.keys())}"
+            )
+            LOGGER.error(err_msg)
+            _raise_scrutiny_api_response_error(err_msg)
 
-            # Ensure essential top-level keys 'data' and 'metadata' are present.
-            # ATTR_METADATA is "metadata" from const.py
-            if (
-                "data" not in full_api_response_data
-                or ATTR_METADATA not in full_api_response_data
-            ):
-                err_msg = (
-                    """Scrutiny API device details response
-                    is missing 'data' or 'metadata' key """
-                    f"(WWN: {wwn}): Keys present: {list(full_api_response_data.keys())}"
-                )
-                LOGGER.error(err_msg)
-                raise ScrutinyApiResponseError(err_msg)
-
-            return full_api_response_data
+        return full_api_response_data
