@@ -8,7 +8,7 @@
 <p align=center>
 <img src=https://img.shields.io/badge/HACS-Default-orange.svg>
 <img src="https://img.shields.io/maintenance/yes/2025.svg">
-<img src=https://img.shields.io/badge/version-0.2.0-blue>
+<img src=https://img.shields.io/badge/version-0.3.0-blue>
 <img alt="Issues" src="https://img.shields.io/github/issues/vitals5/ha_scrutiny?color=0088ff">
 </p>
 

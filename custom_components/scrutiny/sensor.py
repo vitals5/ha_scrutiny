@@ -218,8 +218,10 @@ async def async_setup_entry(
             for attr_id_str_key, attr_data_value in smart_attributes_data.items():
                 if not isinstance(attr_data_value, dict):
                     LOGGER.warning(
-                        """Skipping SMART attribute %s for disk %s:
-                          unexpected data format %s""",
+                        (
+                            "Skipping SMART attribute %s for disk %s: "
+                            "unexpected data format %s"
+                        ),
                         attr_id_str_key,
                         wwn,
                         type(attr_data_value),
@@ -231,8 +233,10 @@ async def async_setup_entry(
                 numeric_attr_id = attr_data_value.get(ATTR_ATTRIBUTE_ID)
                 if numeric_attr_id is None:
                     LOGGER.warning(
-                        """SMART attribute for disk %s (key %s)
-                         is missing '%s'. Data: %s""",
+                        (
+                            "SMART attribute for disk %s (key %s) "
+                            "is missing '%s'. Data: %s"
+                        ),
                         wwn,
                         attr_id_str_key,
                         ATTR_ATTRIBUTE_ID,
@@ -268,8 +272,10 @@ async def async_setup_entry(
                 )
         else:
             LOGGER.warning(
-                """SMART attributes data for disk %s is not a dict:
-                 %s. Skipping SMART attribute sensors.""",
+                (
+                    "SMART attributes data for disk %s is not a dict: "
+                    "%s. Skipping SMART attribute sensors."
+                ),
                 wwn,
                 type(smart_attributes_data),
             )
@@ -426,8 +432,10 @@ class ScrutinySmartAttributeSensor(
         display_name_meta = self._attribute_metadata.get(ATTR_DISPLAY_NAME)
 
         LOGGER.debug(
-            """SMART ATTR INIT (WWN: %s, AttrID_str: %s):
-             Extracted display_name_meta: %s (Type: %s)""",
+            (
+                "SMART ATTR INIT (WWN: %s, AttrID_str: %s): "
+                "Extracted display_name_meta: %s (Type: %s)"
+            ),
             wwn,
             attribute_id_str,
             display_name_meta,

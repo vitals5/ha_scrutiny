@@ -1,20 +1,24 @@
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock  # MagicMock für komplexere Mocks
+from unittest.mock import (
+    patch,
+    AsyncMock,
+    MagicMock,
+)  # MagicMock for more complex mocks
 
-import asyncio  # Für asyncio.gather Simulation
+import asyncio  # For asyncio.gather simulation
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.core import (
     HomeAssistant,
-)  # Für Type Hinting, wird von Fixture bereitgestellt
+)  # For type hinting, provided by fixture
 
-# Zu testende Klasse und Exceptions
+# Class and exceptions to be tested
 from custom_components.scrutiny.coordinator import ScrutinyDataUpdateCoordinator
 from custom_components.scrutiny.api import (
-    ScrutinyApiClient,  # Wird gemockt
+    ScrutinyApiClient,  # Will be mocked
     ScrutinyApiConnectionError,
     ScrutinyApiResponseError,
-    # ScrutinyApiAuthError, # Je nachdem, ob wir es testen wollen
+    # ScrutinyApiAuthError, # Depending on whether we want to test it
 )
 
 # Konstanten, die der Koordinator verwendet
@@ -34,10 +38,10 @@ from custom_components.scrutiny.const import (
 
 from datetime import timedelta
 
-# Konstanten für Kapazitätsberechnung ZUERST definieren
+# Define constants for capacity calculation FIRST
 TB_IN_BYTES = 1024 * 1024 * 1024 * 1024  # 1 Terabyte in Bytes
 
-# Was api_client.async_get_summary() zurückgibt
+# What api_client.async_get_summary() returns
 MOCK_API_SUMMARY_DATA = {
     "wwn1": {
         ATTR_DEVICE: {"device_name": "/dev/sda", "model_name": "DiskModelA_Sum"},
@@ -49,14 +53,14 @@ MOCK_API_SUMMARY_DATA = {
     },
 }
 
-# Was api_client.async_get_device_details("wwn1") zurückgibt
+# What api_client.async_get_device_details("wwn1") returns
 MOCK_API_DETAILS_DATA_WWN1 = {
     "success": True,
     "data": {
         ATTR_DEVICE: {
             "device_name": "/dev/sda",
             "model_name": "DiskModelA_Det",
-            "capacity": 1 * TB_IN_BYTES,  # Verwende die definierte Konstante
+            "capacity": 1 * TB_IN_BYTES,  # Use the defined constant
         },
         ATTR_SMART_RESULTS: [
             {
@@ -70,14 +74,14 @@ MOCK_API_DETAILS_DATA_WWN1 = {
     ATTR_METADATA: {"5": {"display_name": "Reallocated Sectors Count"}},
 }
 
-# Was api_client.async_get_device_details("wwn2") zurückgibt
+# What api_client.async_get_device_details("wwn2") returns
 MOCK_API_DETAILS_DATA_WWN2 = {
     "success": True,
     "data": {
         ATTR_DEVICE: {
             "device_name": "/dev/sdb",
             "model_name": "DiskModelB_Det",
-            "capacity": 2 * TB_IN_BYTES,  # Verwende die definierte Konstante
+            "capacity": 2 * TB_IN_BYTES,  # Use the defined constant
         },
         ATTR_SMART_RESULTS: [
             {
@@ -92,27 +96,27 @@ MOCK_API_DETAILS_DATA_WWN2 = {
 }
 
 
-# --- Hilfsfunktion zum Erstellen eines Koordinator-Mocks ---
+# --- Helper function to create a coordinator mock ---
 async def create_mocked_coordinator(
-    hass: HomeAssistant,  # Wird von pytest-homeassistant-custom-component bereitgestellt
-    mock_api_client: AsyncMock,  # Ein bereits konfigurierter Mock für ScrutinyApiClient
+    hass: HomeAssistant,  # Provided by pytest-homeassistant-custom-component
+    mock_api_client: AsyncMock,  # An already configured mock for ScrutinyApiClient
 ) -> ScrutinyDataUpdateCoordinator:
     """Helper to create a ScrutinyDataUpdateCoordinator with a mocked API client."""
     coordinator = ScrutinyDataUpdateCoordinator(
         hass=hass,
-        logger=LOGGER,  # Du könntest hier auch einen MagicMock() für den Logger übergeben
+        logger=LOGGER,  # You could also pass a MagicMock() for the logger here
         name=f"{DOMAIN}-test-coordinator",
         api_client=mock_api_client,
         update_interval=timedelta(
             seconds=30
-        ),  # Irrelevant für manuelle Updates im Test
+        ),  # Irrelevant for manual updates in the test
     )
     return coordinator
 
 
 @pytest.mark.asyncio
 async def test_coordinator_async_update_data_success(hass: HomeAssistant):
-    # ... (Mock-Setup bleibt gleich) ...
+    # ... (Mock setup remains the same) ...
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
     mock_api_client.async_get_summary = AsyncMock(return_value=MOCK_API_SUMMARY_DATA)
 
@@ -129,27 +133,26 @@ async def test_coordinator_async_update_data_success(hass: HomeAssistant):
 
     coordinator = await create_mocked_coordinator(hass, mock_api_client)
 
-    # 4. Führe die zu testende Methode aus -> Verwende async_refresh()
-    # updated_data = await coordinator._async_update_data() # Alte Methode
+    # 4. Execute the method to be tested -> Use async_refresh()
+    # updated_data = await coordinator._async_update_data() # Old method
     await (
         coordinator.async_refresh()
-    )  # NEUE METHODE: Löst Update aus und setzt coordinator.data
+    )  # NEW METHOD: Triggers update and sets coordinator.data
 
-    # Die Daten sollten jetzt in coordinator.data sein
-    updated_data = coordinator.data  # Hole die Daten aus der Instanzvariable
+    # The data should now be in coordinator.data
+    updated_data = coordinator.data  # Get the data from the instance variable
 
-    # 5. Überprüfe die Aufrufe am Mock-API-Client (bleibt gleich)
+    # 5. Check the calls on the mock API client (remains the same)
     mock_api_client.async_get_summary.assert_called_once()
     assert mock_api_client.async_get_device_details.call_count == len(
         MOCK_API_SUMMARY_DATA
     )
     mock_api_client.async_get_device_details.assert_any_call("wwn1")
     mock_api_client.async_get_device_details.assert_any_call("wwn2")
-
-    # 6. Überprüfe die Struktur und den Inhalt der aggregierten Daten (bleibt gleich)
+    # 6. Check the structure and content of the aggregated data (remains the same)
     assert updated_data is not None
     assert "wwn1" in updated_data
-    # ... (Rest der Assertions für updated_data) ...
+    # ... (Rest of the assertions for updated_data) ...
 
     # Die letzte Assertion ist jetzt implizit, da updated_data = coordinator.data ist
     # assert coordinator.data == updated_data # Diese Zeile ist jetzt nicht mehr nötig oder kann so bleiben
@@ -170,34 +173,33 @@ async def test_coordinator_update_fails_on_summary_connection_error(
 
     coordinator = await create_mocked_coordinator(hass, mock_api_client)
 
-    # Führe async_refresh aus. Wir erwarten jetzt NICHT unbedingt, dass es UpdateFailed wirft,
-    # sondern dass es den Fehler intern behandelt.
-    # Die DataUpdateCoordinator-Basisklasse fängt die Exception von _async_update_data
-    # (wenn es nicht UpdateFailed ist) oder die UpdateFailed selbst.
-    # Sie loggt den Fehler und setzt last_update_success.
+    # Execute async_refresh. We do NOT necessarily expect it to throw UpdateFailed now,
+    # but rather that it handles the error internally.
+    # The DataUpdateCoordinator base class catches the exception from _async_update_data
+    # (if it's not UpdateFailed) or UpdateFailed itself.
+    # It logs the error and sets last_update_success.
 
-    # Wir müssen prüfen, ob async_refresh selbst eine Exception wirft,
-    # die nicht UpdateFailed ist, was nicht passieren sollte.
-    # Wenn _async_update_data UpdateFailed wirft, wird async_refresh es fangen und nicht weiterwerfen.
-    # Wenn _async_update_data eine andere Exception wirft, wird async_refresh diese fangen und nicht weiterwerfen.
+    # We need to check if async_refresh itself throws an exception
+    # that is not UpdateFailed, which should not happen.
+    # If _async_update_data throws UpdateFailed, async_refresh will catch it and not re-throw.
+    # If _async_update_data throws another exception, async_refresh will catch it and not re-throw.
 
-    # Versuche, den Refresh auszuführen. Er sollte keine Exception an den Test weitergeben.
+    # Try to execute the refresh. It should not pass any exception to the test.
     await coordinator.async_refresh()
 
-    # Überprüfe den Status nach dem fehlgeschlagenen Refresh
-    assert coordinator.last_update_success is False  # <--- NEUE HAUPT-ASSERTION
+    # Check the status after the failed refresh
+    assert coordinator.last_update_success is False  # <--- NEW MAIN ASSERTION
 
-    # Die ursprüngliche Exception sollte im Koordinator als self.last_exception gespeichert sein
-    # (oder zumindest die UpdateFailed, die von _raise_update_failed geworfen wurde)
+    # The original exception should be stored in the coordinator as self.last_exception
+    # (or at least the UpdateFailed that was thrown by _raise_update_failed)
     assert coordinator.last_exception is not None
-    # Überprüfe den Typ der gespeicherten Exception.
-    # Wenn dein _async_update_data UpdateFailed wirft, sollte es hier UpdateFailed sein.
+    # Check the type of the stored exception.
+    # If your _async_update_data throws UpdateFailed, it should be UpdateFailed here.
     assert isinstance(coordinator.last_exception, UpdateFailed)
     assert "Connection error during Scrutiny data update cycle" in str(
         coordinator.last_exception
     )
     assert "Simulated summary connection error" in str(coordinator.last_exception)
-
     # Überprüfe die Mock-Aufrufe
     mock_api_client.async_get_summary.assert_called_once()
     mock_api_client.async_get_device_details.assert_not_called()
@@ -215,19 +217,19 @@ async def test_coordinator_handles_partial_detail_failure(hass: HomeAssistant):
     """Test coordinator handles failure for one disk's details but processes others."""
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
 
-    # Summary ist erfolgreich
+    # Summary is successful
     mock_api_client.async_get_summary = AsyncMock(return_value=MOCK_API_SUMMARY_DATA)
 
-    # Details für wwn1 ist erfolgreich, für wwn2 schlägt es fehl
+    # Details for wwn1 are successful, for wwn2 it fails
     async def mock_details_side_effect_with_failure(wwn):
         if wwn == "wwn1":
             return MOCK_API_DETAILS_DATA_WWN1
         if wwn == "wwn2":
-            # Simuliere einen Fehler, den _process_detail_results als Exception erhält
+            # Simulate an error that _process_detail_results receives as an exception
             raise ScrutinyApiResponseError(
                 "Simulated detail API response error for wwn2"
             )
-        return {}  # Fallback, sollte nicht erreicht werden bei nur zwei WWNs
+        return {}  # Fallback, should not be reached with only two WWNs
 
     mock_api_client.async_get_device_details = AsyncMock(
         side_effect=mock_details_side_effect_with_failure
@@ -235,13 +237,13 @@ async def test_coordinator_handles_partial_detail_failure(hass: HomeAssistant):
 
     coordinator = await create_mocked_coordinator(hass, mock_api_client)
 
-    # async_refresh sollte hier KEINE UpdateFailed Exception werfen.
-    # Der Fehler wird in _process_detail_results behandelt.
+    # async_refresh should NOT throw an UpdateFailed exception here.
+    # The error is handled in _process_detail_results.
     await coordinator.async_refresh()
 
     updated_data = coordinator.data
     assert updated_data is not None
-    assert coordinator.last_update_success is True  # Der Gesamt-Update war erfolgreich
+    assert coordinator.last_update_success is True  # The overall update was successful
 
     # Überprüfe Aufrufe
     mock_api_client.async_get_summary.assert_called_once()
@@ -251,30 +253,29 @@ async def test_coordinator_handles_partial_detail_failure(hass: HomeAssistant):
     mock_api_client.async_get_device_details.assert_any_call("wwn1")
     mock_api_client.async_get_device_details.assert_any_call("wwn2")
 
-    # Daten für wwn1 sollten komplett sein
+    # Data for wwn1 should be complete
     assert "wwn1" in updated_data
     assert updated_data["wwn1"][KEY_SUMMARY_DEVICE]["model_name"] == "DiskModelA_Sum"
     assert updated_data["wwn1"][KEY_DETAILS_DEVICE]["model_name"] == "DiskModelA_Det"
     assert (
         updated_data["wwn1"][KEY_DETAILS_SMART_LATEST]["temp"] == 31
-    )  # Aus MOCK_API_DETAILS_DATA_WWN1
+    )  # From MOCK_API_DETAILS_DATA_WWN1
 
-    # Daten für wwn2: Summary sollte da sein, Details sollten leer sein
-    # (gemäß deiner _process_detail_results Logik, die bei Exception leere Dicts setzt)
+    # Data for wwn2: Summary should be there, details should be empty
+    # (according to your _process_detail_results logic, which sets empty dicts on exception)
     assert "wwn2" in updated_data
     assert updated_data["wwn2"][KEY_SUMMARY_DEVICE]["model_name"] == "DiskModelB_Sum"
     assert updated_data["wwn2"][KEY_DETAILS_DEVICE] == {}
     assert updated_data["wwn2"][KEY_DETAILS_SMART_LATEST] == {}
     assert updated_data["wwn2"][KEY_DETAILS_METADATA] == {}
-
     print("SUCCESS: test_coordinator_handles_partial_detail_failure passed!")
 
 
 @pytest.mark.asyncio  # Nicht unbedingt async, wenn _process_detail_results nicht async ist
 async def test_process_detail_results_handles_exception_input(hass: HomeAssistant):
     """Test _process_detail_results correctly handles an Exception as input."""
-    # Erstelle einen Dummy-Koordinator nur für diesen Test der Methode
-    # Der API-Client-Mock ist hier nicht unbedingt nötig, wenn _process_detail_results ihn nicht direkt verwendet.
+    # Create a dummy coordinator just for this method test
+    # The API client mock is not strictly necessary here if _process_detail_results doesn't use it directly.
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
     coordinator = ScrutinyDataUpdateCoordinator(
         hass=hass,
@@ -285,18 +286,18 @@ async def test_process_detail_results_handles_exception_input(hass: HomeAssistan
     )
 
     wwn_key = "test_wwn_exception"
-    # Simuliere, dass asyncio.gather eine Exception für diesen Task zurückgegeben hat
+    # Simulate that asyncio.gather returned an exception for this task
     exception_input = ValueError("Simulated error during detail fetch")
-    target_data_dict = {}  # Das Dictionary, das die Methode befüllen soll
+    target_data_dict = {}  # The dictionary that the method should populate
 
-    # Rufe die Methode direkt auf
+    # Call the method directly
     coordinator._process_detail_results(wwn_key, exception_input, target_data_dict)
 
-    # Überprüfe, ob die Detail-Keys mit leeren Dictionaries befüllt wurden
+    # Check if the detail keys were populated with empty dictionaries
     assert target_data_dict[KEY_DETAILS_DEVICE] == {}
     assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}
     assert target_data_dict[KEY_DETAILS_METADATA] == {}
-    # Optional: Überprüfe, ob eine Warnung geloggt wurde (erfordert Mocking des Loggers)
+    # Optional: Check if a warning was logged (requires mocking the logger)
 
 
 @pytest.mark.asyncio
@@ -311,7 +312,7 @@ async def test_process_detail_results_handles_valid_input(hass: HomeAssistant):
         update_interval=timedelta(seconds=30),
     )
     wwn_key = "wwn1"
-    # Verwende unsere MOCK_API_DETAILS_DATA_WWN1 als valide Eingabe
+    # Use our MOCK_API_DETAILS_DATA_WWN1 as valid input
     valid_input = MOCK_API_DETAILS_DATA_WWN1
     target_data_dict = {}
 
@@ -335,7 +336,7 @@ async def test_process_detail_results_handles_valid_input(hass: HomeAssistant):
 async def test_coordinator_handles_empty_summary(hass: HomeAssistant):
     """Test coordinator handles an empty summary (no disks)."""
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
-    mock_api_client.async_get_summary = AsyncMock(return_value={})  # Leeres Summary
+    mock_api_client.async_get_summary = AsyncMock(return_value={})  # Empty summary
     mock_api_client.async_get_device_details = AsyncMock()
 
     coordinator = await create_mocked_coordinator(hass, mock_api_client)
@@ -344,7 +345,7 @@ async def test_coordinator_handles_empty_summary(hass: HomeAssistant):
     assert coordinator.data == {}
     assert coordinator.last_update_success is True
     mock_api_client.async_get_summary.assert_called_once()
-    mock_api_client.async_get_device_details.assert_not_called()  # Wichtig!
+    mock_api_client.async_get_device_details.assert_not_called()  # Important!
 
 
 @pytest.mark.asyncio
@@ -352,40 +353,40 @@ async def test_coordinator_handles_invalid_summary_type(hass: HomeAssistant):
     """Test coordinator handles summary data that is not a dictionary and sets last_update_success."""
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
     mock_api_client.async_get_summary = AsyncMock(
-        return_value="not a dict"  # Ungültiger Typ
+        return_value="not a dict"  # Invalid type
     )
     mock_api_client.async_get_device_details = AsyncMock()
 
     coordinator = await create_mocked_coordinator(hass, mock_api_client)
 
-    # Führe async_refresh aus. Er sollte den Fehler intern behandeln.
+    # Execute async_refresh. It should handle the error internally.
     await coordinator.async_refresh()
 
-    # Überprüfe den Status nach dem fehlgeschlagenen Refresh
+    # Check the status after the failed refresh
     assert coordinator.last_update_success is False
 
     assert coordinator.last_exception is not None
     assert isinstance(coordinator.last_exception, UpdateFailed)
 
-    # Die Nachricht von UpdateFailed wird von _raise_update_failed im Koordinator konstruiert.
-    # Sie enthält die Nachricht des ScrutinyApiError, der die ScrutinyApiResponseError war.
-    # Die ursprüngliche ScrutinyApiResponseError hatte die Nachricht "Summary data from API was not a dictionary."
-    # Der ScrutinyApiError-Block macht daraus:
+    # The message from UpdateFailed is constructed by _raise_update_failed in the coordinator.
+    # It contains the message of the ScrutinyApiError, which was the ScrutinyApiResponseError.
+    # The original ScrutinyApiResponseError had the message "Summary data from API was not a dictionary."
+    # The ScrutinyApiError block turns this into:
     # f"API error during Scrutiny data update cycle: {err!s}"
-    # wobei err!s dann "Summary data from API was not a dictionary." ist.
+    # where err!s is then "Summary data from API was not a dictionary.".
 
-    # Erwartete Nachricht in last_exception.args[0] oder str(coordinator.last_exception)
+    # Expected message in last_exception.args[0] or str(coordinator.last_exception)
     expected_msg_part_from_api_error = "Summary data from API was not a dictionary."
     expected_wrapper_msg = "API error during Scrutiny data update cycle"
 
     assert expected_wrapper_msg in str(coordinator.last_exception)
     assert expected_msg_part_from_api_error in str(coordinator.last_exception)
 
-    # Überprüfe die Ursache der UpdateFailed-Exception, es sollte die ScrutinyApiResponseError sein
+    # Check the cause of the UpdateFailed exception, it should be ScrutinyApiResponseError
     assert isinstance(coordinator.last_exception.__cause__, ScrutinyApiResponseError)
     assert expected_msg_part_from_api_error in str(coordinator.last_exception.__cause__)
 
-    # Überprüfe Mock-Aufrufe
+    # Check mock calls
     mock_api_client.async_get_summary.assert_called_once()
     mock_api_client.async_get_device_details.assert_not_called()
 
@@ -396,19 +397,19 @@ async def test_coordinator_handles_invalid_summary_type(hass: HomeAssistant):
     )
 
 
-# --- Tests für _process_detail_results ---
+# --- Tests for _process_detail_results ---
 
 
 def _get_dummy_coordinator_for_method_test(
     hass: HomeAssistant,
 ) -> ScrutinyDataUpdateCoordinator:
     """Helper to get a coordinator instance for testing its methods directly."""
-    # Der API-Client-Mock ist hier oft nicht kritisch, da _process_detail_results
-    # ihn normalerweise nicht direkt verwendet, sondern nur die Daten, die er geliefert hätte.
+    # The API client mock is often not critical here, as _process_detail_results
+    # usually doesn't use it directly, only the data it would have provided.
     mock_api_client = AsyncMock(spec=ScrutinyApiClient)
     return ScrutinyDataUpdateCoordinator(
         hass=hass,
-        logger=LOGGER,  # Oder ein MagicMock() für den Logger, um Log-Ausgaben zu prüfen
+        logger=LOGGER,  # Or a MagicMock() for the logger to check log output
         name="test_process_details",
         api_client=mock_api_client,
         update_interval=timedelta(seconds=30),
@@ -416,14 +417,15 @@ def _get_dummy_coordinator_for_method_test(
 
 
 # --- Tests für die Methode _process_detail_results ---
+# --- Tests for the _process_detail_results method ---
 
 
 def test_process_detail_results_with_valid_data(hass: HomeAssistant):
     """Test _process_detail_results with a valid full_detail_response dictionary."""
     coordinator = _get_dummy_coordinator_for_method_test(hass)
     wwn_key = "wwn1_valid"
-    # Erstelle eine tiefe Kopie, um Seiteneffekte zu vermeiden, wenn MOCK_API_DETAILS_DATA_WWN1 global ist
-    # und in anderen Tests modifiziert werden könnte (hier nicht der Fall, aber gute Praxis).
+    # Create a deep copy to avoid side effects if MOCK_API_DETAILS_DATA_WWN1 is global
+    # and could be modified in other tests (not the case here, but good practice).
     # import copy; valid_input = copy.deepcopy(MOCK_API_DETAILS_DATA_WWN1)
     valid_input = MOCK_API_DETAILS_DATA_WWN1
     target_data_dict = {}
@@ -446,17 +448,16 @@ def test_process_detail_results_with_exception_input(hass: HomeAssistant, caplog
     exception_input = ValueError("Simulated error from asyncio.gather for details")
     target_data_dict = {}
 
-    # Optional: Teste, ob eine Warnung geloggt wird
-    # caplog Fixture von pytest fängt Log-Ausgaben
-    # import logging; caplog.set_level(logging.WARNING) # Stelle sicher, dass WARNINGS gefangen werden
+    # Optional: Test if a warning is logged
+    # caplog fixture from pytest captures log output
+    # import logging; caplog.set_level(logging.WARNING) # Ensure WARNINGS are captured
 
     coordinator._process_detail_results(wwn_key, exception_input, target_data_dict)
 
     assert target_data_dict[KEY_DETAILS_DEVICE] == {}
     assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}
     assert target_data_dict[KEY_DETAILS_METADATA] == {}
-
-    # Optional: Überprüfe die Log-Ausgabe
+    # Optional: Check the log output
     # assert f"Failed to fetch details for disk {wwn_key}" in caplog.text
     # assert str(exception_input) in caplog.text
     print(
@@ -468,19 +469,19 @@ def test_process_detail_results_missing_data_key_in_payload(hass: HomeAssistant)
     """Test _process_detail_results with missing 'data' key in the response payload."""
     coordinator = _get_dummy_coordinator_for_method_test(hass)
     wwn_key = "wwn_no_data_key"
-    faulty_input = {  # 'data'-Schlüssel fehlt auf oberster Ebene
+    faulty_input = {  # 'data' key is missing at the top level
         "success": True,
-        # "data": { ... } # FEHLT!
+        # "data": { ... } # MISSING!
         ATTR_METADATA: {"1": {"display_name": "Test Attr"}},
     }
     target_data_dict = {}
 
     coordinator._process_detail_results(wwn_key, faulty_input, target_data_dict)
 
-    # Erwartet leere Dicts, da 'data' fehlt, um 'device' und 'smart_results' zu extrahieren
+    # Expects empty dicts because 'data' is missing to extract 'device' and 'smart_results'
     assert target_data_dict[KEY_DETAILS_DEVICE] == {}
     assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}
-    # Metadaten sind auf oberster Ebene und sollten trotzdem extrahiert werden
+    # Metadata is at the top level and should still be extracted
     assert target_data_dict[KEY_DETAILS_METADATA] == faulty_input[ATTR_METADATA]
     print(
         f"SUCCESS: {test_process_detail_results_missing_data_key_in_payload.__name__} passed!"
@@ -495,7 +496,7 @@ def test_process_detail_results_missing_smart_results_in_data(hass: HomeAssistan
         "success": True,
         "data": {
             ATTR_DEVICE: {"model_name": "TestDiskWithNoSmart"},
-            # ATTR_SMART_RESULTS fehlt hier im 'data'-Objekt!
+            # ATTR_SMART_RESULTS is missing here in the 'data' object!
         },
         ATTR_METADATA: {"1": {"display_name": "Test Attr"}},
     }
@@ -504,7 +505,7 @@ def test_process_detail_results_missing_smart_results_in_data(hass: HomeAssistan
     coordinator._process_detail_results(wwn_key, faulty_input, target_data_dict)
 
     assert target_data_dict[KEY_DETAILS_DEVICE] == faulty_input["data"][ATTR_DEVICE]
-    assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}  # Sollte leer sein
+    assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}  # Should be empty
     assert target_data_dict[KEY_DETAILS_METADATA] == faulty_input[ATTR_METADATA]
     print(
         f"SUCCESS: {test_process_detail_results_missing_smart_results_in_data.__name__} passed!"
@@ -519,7 +520,7 @@ def test_process_detail_results_empty_smart_results_list(hass: HomeAssistant):
         "success": True,
         "data": {
             ATTR_DEVICE: {"model_name": "TestDiskEmptySmart"},
-            ATTR_SMART_RESULTS: [],  # Leere Liste!
+            ATTR_SMART_RESULTS: [],  # Empty list!
         },
         ATTR_METADATA: {"1": {"display_name": "Test Attr"}},
     }
@@ -528,7 +529,7 @@ def test_process_detail_results_empty_smart_results_list(hass: HomeAssistant):
     coordinator._process_detail_results(wwn_key, faulty_input, target_data_dict)
 
     assert target_data_dict[KEY_DETAILS_DEVICE] == faulty_input["data"][ATTR_DEVICE]
-    assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}  # Sollte leer sein
+    assert target_data_dict[KEY_DETAILS_SMART_LATEST] == {}  # Should be empty
     assert target_data_dict[KEY_DETAILS_METADATA] == faulty_input[ATTR_METADATA]
     print(
         f"SUCCESS: {test_process_detail_results_empty_smart_results_list.__name__} passed!"
@@ -544,10 +545,10 @@ def test_process_detail_results_missing_metadata_key_in_payload(hass: HomeAssist
         "data": {
             ATTR_DEVICE: {"model_name": "TestDiskNoMetadata"},
             ATTR_SMART_RESULTS: [
-                {"attrs": {}, "Status": 0}
-            ],  # Gültige, aber leere Smart-Results
+                {"attrs": {}, "Status": 0}  # Valid, but empty smart results
+            ],
         },
-        # ATTR_METADATA fehlt!
+        # ATTR_METADATA is missing!
     }
     target_data_dict = {}
 
@@ -558,7 +559,7 @@ def test_process_detail_results_missing_metadata_key_in_payload(hass: HomeAssist
         target_data_dict[KEY_DETAILS_SMART_LATEST]
         == faulty_input["data"][ATTR_SMART_RESULTS][0]
     )
-    assert target_data_dict[KEY_DETAILS_METADATA] == {}  # Sollte leer sein
+    assert target_data_dict[KEY_DETAILS_METADATA] == {}  # Should be empty
     print(
         f"SUCCESS: {test_process_detail_results_missing_metadata_key_in_payload.__name__} passed!"
     )

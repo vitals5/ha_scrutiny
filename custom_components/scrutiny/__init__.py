@@ -9,14 +9,26 @@ from __future__ import (
     annotations,
 )  # Ensures compatibility for type hints, e.g. ScrutinyConfigEntry
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers import (
     device_registry as dr,
 )  # Import device_registry for device creation
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .const import (
+    CONF_HOST,  # Key for the Scrutiny server host
+    CONF_PORT,  # Key for the Scrutiny server port
+    CONF_SCAN_INTERVAL,  # Key for the polling interval for data updates
+    DEFAULT_SCAN_INTERVAL_MINUTES,  # Default polling interval in minutes
+    DOMAIN,
+    LOGGER,
+    NAME,
+    PLATFORMS,
+    VERSION,
+)
 
 # Conditional import for type checking, avoids circular imports at runtime.
 if TYPE_CHECKING:
@@ -27,8 +39,6 @@ if TYPE_CHECKING:
 from .api import ScrutinyApiClient
 
 # Import constants used by the integration.
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, LOGGER, NAME, PLATFORMS, VERSION
-
 # Import the data update coordinator.
 from .coordinator import ScrutinyDataUpdateCoordinator
 
@@ -61,6 +71,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ScrutinyConfigEntry) -> 
     # This data was stored by the config flow (config_flow.py).
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
+    scan_interval_minutes = entry.options.get(  # NEU: Zuerst Optionen prüfen
+        CONF_SCAN_INTERVAL,
+        entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES),
+    )
+    update_interval = timedelta(minutes=scan_interval_minutes)
 
     # Get the shared aiohttp client session from Home Assistant.
     # This is the recommended way to make HTTP requests in integrations
@@ -79,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ScrutinyConfigEntry) -> 
         logger=LOGGER,  # Pass the integration-specific logger.
         name=f"Scrutiny ({host}:{port})",  # A descriptive name for log and diagnostics.
         api_client=api_client,  # Pass the API client to the coordinator.
-        update_interval=DEFAULT_SCAN_INTERVAL,  # Use the defined scan interval.
+        update_interval=update_interval,  # Use the defined scan interval.
     )
 
     # Perform the first refresh of the coordinator's data.
@@ -115,6 +130,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ScrutinyConfigEntry) -> 
     # (e.g., sensor.py), passing this config entry.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    entry.async_on_unload(entry.add_update_listener(async_options_update_listener))
+
     # Set up an update listener. This listener will be called if the config entry
     # is updated (e.g., through an options flow, though not implemented in this version)
     # The async_reload_entry function will handle reloading the integration.
@@ -122,6 +139,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ScrutinyConfigEntry) -> 
 
     # Return True to indicate successful setup.
     return True
+
+
+async def async_options_update_listener(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Handle options update."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ScrutinyConfigEntry) -> bool:

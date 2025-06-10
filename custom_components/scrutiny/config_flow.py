@@ -9,6 +9,7 @@ from homeassistant import (
     config_entries,
 )  # Base class for ConfigFlow, ConfigFlowResult, etc.
 from homeassistant.const import CONF_HOST  # Standard Home Assistant constant for host
+from homeassistant.core import callback
 
 # Import port constant from our integration's const.py
 from homeassistant.helpers.aiohttp_client import (
@@ -28,10 +29,13 @@ from .api import (
 # Import constants from our integration.
 from .const import (
     CONF_PORT,
+    CONF_SCAN_INTERVAL,
     DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
     LOGGER,
 )  # DOMAIN for config flow, LOGGER for logging
+from .options_flow import ScrutinyOptionsFlowHandler
 
 # Data schema for the user configuration form.
 # This defines the fields the user will see in the UI, their types, and default values.
@@ -42,6 +46,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         # Port number for the Scrutiny server. This field
         #  is optional and defaults to DEFAULT_PORT.
         vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+        vol.Optional(
+            CONF_SCAN_INTERVAL,
+            default=DEFAULT_SCAN_INTERVAL_MINUTES,  # Verwende Minuten für die Eingabe
+        ): vol.All(vol.Coerce(int), vol.Range(min=1)),
     }
 )
 
@@ -55,7 +63,7 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """
 
     VERSION = (
-        1  # Version of the config flow. Increment if the schema or stored data changes.
+        2  # Version of the config flow. Increment if the schema or stored data changes.
     )
     # Connection class is not used here as we are doing local polling.
     # CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL  # noqa: ERA001
@@ -130,6 +138,10 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             # The schema already applies the default, but this is a safeguard.
             port = user_input.get(CONF_PORT, DEFAULT_PORT)
 
+            scan_interval_minutes = user_input.get(
+                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
+            )
+
             # Create a unique ID for this configuration entry
             #  to prevent duplicate entries
             # for the same Scrutiny instance.
@@ -170,8 +182,10 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception:  # pylint: disable=broad-except # noqa: BLE001
                 # Catch any other unexpected errors during the connection test.
                 LOGGER.exception(
-                    """An unexpected error occurred while
-                     trying to connect to Scrutiny at %s:%s""",
+                    (
+                        "An unexpected error occurred while "
+                        "trying to connect to Scrutiny at %s:%s"
+                    ),
                     host,
                     port,
                 )
@@ -190,6 +204,7 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     data={  # Data to be stored in the config entry.
                         CONF_HOST: host,
                         CONF_PORT: port,
+                        CONF_SCAN_INTERVAL: scan_interval_minutes,
                     },
                 )
 
@@ -199,3 +214,11 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> ScrutinyOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return ScrutinyOptionsFlowHandler(config_entry)

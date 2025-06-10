@@ -18,11 +18,12 @@ VERSION: str = "0.1.0"
 # Configuration keys used in config_flow.py and __init__.py.
 CONF_HOST: str = "host"  # Key for the Scrutiny server host.
 CONF_PORT: str = "port"  # Key for the Scrutiny server port.
-
+CONF_SCAN_INTERVAL: str = "scan_interval"  # Key for the poll interval for data updates.
 # Default values for configuration.
 DEFAULT_PORT: int = 8080  # Default port for the Scrutiny API.
+DEFAULT_SCAN_INTERVAL_MINUTES: int = 60  # Default polling interval in minutes.
 DEFAULT_SCAN_INTERVAL: timedelta = timedelta(
-    minutes=5
+    minutes=DEFAULT_SCAN_INTERVAL_MINUTES
 )  # Default interval for polling data.
 
 # --- Keys for navigating the aggregated data structure in the coordinator ---

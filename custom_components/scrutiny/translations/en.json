@@ -4,9 +4,15 @@
             "user": {
                 "title": "Connect to Scrutiny",
                 "description": "Enter the connection details for your Scrutiny instance.",
+                "data": {
+                    "host": "Hostname or IP address",
+                    "port": "Port number",
+                    "scan_interval": "Scan Interval (minutes)"
+                },
                 "data_description": {
                     "host": "The hostname or IP address of your Scrutiny server.",
-                    "port": "The port number Scrutiny is running on (default: 18080)."
+                    "port": "The port number Scrutiny is running on (default: 8080).",
+                    "scan_interval": "How often to poll Scrutiny for updates, in minutes. Minimum 1."
                 }
             }
         },
