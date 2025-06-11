@@ -125,7 +125,7 @@ ATTR_DESCRIPTION: str = "description"  # Text description of the SMART attribute
 # Mapping for 'device_status' from the '/api/summary' endpoint.
 SCRUTINY_DEVICE_SUMMARY_STATUS_MAP: dict[int, str] = {
     0: "Passed",  # Device is considered healthy.
-    1: "Failed (SMART)",  # Device failed due to SMART attributes.
+    1: "Failed (S.M.A.R.T.)",  # Device failed due to SMART attributes.
     2: "Failed (Scrutiny)",  # Device failed based on Scrutiny's own checks.
 }
 SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN: str = (
