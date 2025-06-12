@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/vitals5/ha_scrutiny">
-  <img width="300" alt="scrutiny_view" src="https://github.com/AnalogJ/scrutiny/raw/master/webapp/frontend/src/assets/images/logo/scrutiny-logo-dark.png">
+  <img width="300" alt="scrutiny_view" src="https://raw.githubusercontent.com/VitalS5/ha_scrutiny/master/brands/ha_scrutiny_banner.png">
   </a>
 </p>
 
