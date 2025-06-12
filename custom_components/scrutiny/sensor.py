@@ -399,7 +399,7 @@ class ScrutinySmartAttributeSensor(
     """Representation of a single SMART attribute for a Scrutiny-monitored disk."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC  # These are diagnostic sensors
-    _attr_has_entity_name = False  # We set _attr_name directly for more control
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -430,6 +430,11 @@ class ScrutinySmartAttributeSensor(
 
         # Get the display name from metadata, e.g., "Reallocated Sectors Count".
         display_name_meta = self._attribute_metadata.get(ATTR_DISPLAY_NAME)
+        attribute_specific_name_part = (
+            display_name_meta
+            if display_name_meta
+            else f"Attribute {self._attribute_id_str}"
+        )
 
         LOGGER.debug(
             (
@@ -442,29 +447,32 @@ class ScrutinySmartAttributeSensor(
             type(display_name_meta),
         )
 
-        # Construct the entity name suffix using the display name or a fallback.
-        self.entity_name_suffix = (
-            display_name_meta
-            if display_name_meta
-            # Fallback if display_name is missing
-            else f"Attribute {self._attribute_id_str}"
-        )
-
-        # Set the full entity name.
-        self._attr_name = f"SMART {self._attribute_id_str}: {self.entity_name_suffix}"
-
-        LOGGER.debug(
-            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Final _attr_name: %s",
-            wwn,
-            attribute_id_str,
-            self._attr_name,
+        # Define the entity description for this SMART attribute sensor.
+        # The state of this sensor will be the status
+        #  of the SMART attribute (e.g., "Passed", "Failed").
+        self.entity_description = SensorEntityDescription(
+            key=f"smart_attr_{self._attribute_id_str}",
+            name=f"SMART {self._attribute_id_str} {attribute_specific_name_part}",
+            device_class=SensorDeviceClass.ENUM,
+            options=[*ATTR_SMART_STATUS_MAP.values(), ATTR_SMART_STATUS_UNKNOWN],
         )
 
         # Create a unique ID for this sensor entity.
         # Slugify the name part to ensure it's URL-friendly and consistent.
-        slugified_name_part = slugify(self.entity_name_suffix)
-        unique_id_base = f"{DOMAIN}_{self._wwn}_smart_{self._attribute_id_str}"
-        self._attr_unique_id = f"{unique_id_base}_{slugified_name_part}"
+        summary_device_data = coordinator.data.get(wwn, {}).get(KEY_SUMMARY_DEVICE, {})
+        device_name_raw = summary_device_data.get(ATTR_DEVICE_NAME)
+        if not device_name_raw:
+            device_name_cleaned_for_id = f"disk_{wwn[-6:]}"
+        else:
+            device_name_cleaned_for_id = device_name_raw.split("/")[-1]
+        device_name_slug_for_id = slugify(device_name_cleaned_for_id)
+
+        slugified_attr_name_part_for_id = slugify(attribute_specific_name_part)
+
+        self._attr_unique_id = (
+            f"{DOMAIN}_{self._wwn}_{device_name_slug_for_id}_smart_"
+            f"{self._attribute_id_str}_{slugified_attr_name_part_for_id}"
+        )
 
         LOGGER.debug(
             "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Final unique_id: %s",
@@ -473,21 +481,9 @@ class ScrutinySmartAttributeSensor(
             self._attr_unique_id,
         )
 
-        # Define the entity description for this SMART attribute sensor.
-        # The state of this sensor will be the status
-        #  of the SMART attribute (e.g., "Passed", "Failed").
-        self.entity_description = SensorEntityDescription(
-            # Unique key for this sensor type
-            key=f"smart_attr_{self._attribute_id_str}",
-            # Name (used if _attr_has_entity_name were True)
-            name=self.entity_name_suffix,
-            # State is one of a predefined set
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                *ATTR_SMART_STATUS_MAP.values(),
-                ATTR_SMART_STATUS_UNKNOWN,
-            ],  # Possible states
-        )
+        # Critical attributes sensors should be enabled by default.
+        is_critical_attribute = self._attribute_metadata.get(ATTR_IS_CRITICAL, False)
+        self._attr_entity_registry_enabled_default = bool(is_critical_attribute)
 
         # Initial update of state and attributes.
         self._update_state_and_attributes()
