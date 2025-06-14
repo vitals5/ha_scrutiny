@@ -244,10 +244,12 @@ async def async_setup_entry(
                     )
                     continue
 
+                actual_attribute_id_for_sensor = str(numeric_attr_id)
+
                 # Get metadata for this specific attribute ID from the details_metadata.
                 # The keys in details_metadata are
                 #  string representations of numeric_attr_id.
-                attr_metadata = details_metadata.get(str(numeric_attr_id), {})
+                attr_metadata = details_metadata.get(actual_attribute_id_for_sensor, {})
 
                 LOGGER.debug(
                     "ASYNC_SETUP_ENTRY (WWN: %s, AttrID_str: %s, NumID: %s): "
@@ -265,7 +267,7 @@ async def async_setup_entry(
                         wwn=wwn,
                         device_info=device_info,
                         # The string key like "5", "194"
-                        attribute_id_str=attr_id_str_key,
+                        attribute_id_str=actual_attribute_id_for_sensor,
                         # Metadata for this attribute
                         attribute_metadata=attr_metadata,
                     )
