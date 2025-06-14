@@ -423,38 +423,26 @@ class ScrutinySmartAttributeSensor(
         )
         self._attr_device_info = device_info  # Associate with the disk's device
 
-        LOGGER.debug(
-            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Full Metadata received: %s",
-            wwn,
-            attribute_id_str,
-            attribute_metadata,
-        )
-
         # Get the display name from metadata, e.g., "Reallocated Sectors Count".
         display_name_meta = self._attribute_metadata.get(ATTR_DISPLAY_NAME)
-        attribute_specific_name_part = (
-            display_name_meta
-            if display_name_meta
-            else f"Attribute {self._attribute_id_str}"
-        )
 
-        LOGGER.debug(
-            (
-                "SMART ATTR INIT (WWN: %s, AttrID_str: %s): "
-                "Extracted display_name_meta: %s (Type: %s)"
-            ),
-            wwn,
-            attribute_id_str,
-            display_name_meta,
-            type(display_name_meta),
-        )
+        if display_name_meta:
+            self.attribute_name_for_entity_description = display_name_meta
+        elif not self._attribute_id_str.isdecimal():  # z.B. "critical_warning"
+            self.attribute_name_for_entity_description = self._attribute_id_str.replace(
+                "_", " "
+            ).title()
+        else:  # z.B. "5"
+            self.attribute_name_for_entity_description = (
+                f"Attribute {self._attribute_id_str}"
+            )
 
         # Define the entity description for this SMART attribute sensor.
         # The state of this sensor will be the status
         #  of the SMART attribute (e.g., "Passed", "Failed").
         self.entity_description = SensorEntityDescription(
-            key=f"smart_attr_{self._attribute_id_str}",
-            name=f"SMART {self._attribute_id_str} {attribute_specific_name_part}",
+            key=f"smart_attr_{slugify(self._attribute_id_str)}",
+            name=self.attribute_name_for_entity_description,
             device_class=SensorDeviceClass.ENUM,
             options=[*ATTR_SMART_STATUS_MAP.values(), ATTR_SMART_STATUS_UNKNOWN],
         )
@@ -469,18 +457,15 @@ class ScrutinySmartAttributeSensor(
             device_name_cleaned_for_id = device_name_raw.split("/")[-1]
         device_name_slug_for_id = slugify(device_name_cleaned_for_id)
 
-        slugified_attr_name_part_for_id = slugify(attribute_specific_name_part)
+        # Verwende den ursprünglichen, eindeutigen
+        # _attribute_id_str und den slugifizierten Anzeigenamen
+        slugified_display_name_for_id = slugify(
+            self.attribute_name_for_entity_description
+        )
 
         self._attr_unique_id = (
             f"{DOMAIN}_{self._wwn}_{device_name_slug_for_id}_smart_"
-            f"{self._attribute_id_str}_{slugified_attr_name_part_for_id}"
-        )
-
-        LOGGER.debug(
-            "SMART ATTR INIT (WWN: %s, AttrID_str: %s): Final unique_id: %s",
-            wwn,
-            attribute_id_str,
-            self._attr_unique_id,
+            f"{slugify(self._attribute_id_str)}_{slugified_display_name_for_id}"
         )
 
         # Critical attributes sensors should be enabled by default.
