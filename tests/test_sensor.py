@@ -660,177 +660,73 @@ async def test_smart_attribute_sensor_update_and_availability(hass: HomeAssistan
     )
 
 
+@pytest.mark.parametrize(
+    "attr_id_str_to_test, expected_fallback_name_part_in_description, is_numeric_id_case",
+    [
+        ("99", "Attribute 99", True),
+        ("unknown_nvme_attr", "Unknown Nvme Attr", False),
+    ],
+)
 @pytest.mark.asyncio
-async def test_smart_attribute_sensor_basic_init_and_state(hass: HomeAssistant):
-    """Test basic initialization and state of ScrutinySmartAttributeSensor."""
+async def test_smart_attribute_sensor_name_fallback(
+    hass: HomeAssistant,
+    attr_id_str_to_test: str,
+    expected_fallback_name_part_in_description: str,  # Umbenannt für Klarheit
+    is_numeric_id_case: bool,
+):
+    """Test ScrutinySmartAttributeSensor name generation fallback and component parts."""
     wwn = MOCK_WWN1
-    attr_id_str = "5"
-
-    mock_coordinator = MagicMock(spec=ScrutinyDataUpdateCoordinator)
-    mock_coordinator.data = COORDINATOR_DATA_ONE_DISK
-    mock_coordinator.last_update_success = True
-
-    sensor = create_smart_attribute_sensor(hass, mock_coordinator, wwn, attr_id_str)
-
-    # --- Teste die Komponenten des Namens ---
-    # 1. device_info.name (wie es vom Sensor gespeichert wird)
-    summary_device_data_for_name = COORDINATOR_DATA_ONE_DISK[wwn][KEY_SUMMARY_DEVICE]
-    expected_device_info_name_in_sensor = (  # Der Name, der in sensor._attr_device_info["name"] sein sollte
-        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} "
-        f"({summary_device_data_for_name.get(ATTR_DEVICE_NAME, wwn[-6:])})"
-    )
-    assert sensor.device_info is not None
-    assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore[reportTypedDictNotRequiredAccess]
-
-    # 2. entity_description.name (wie es im Sensor gesetzt wird)
-    attribute_metadata_for_name = COORDINATOR_DATA_ONE_DISK[wwn][KEY_DETAILS_METADATA][
-        str(
-            COORDINATOR_DATA_ONE_DISK[wwn][KEY_DETAILS_SMART_LATEST][ATTR_SMART_ATTRS][
-                attr_id_str
-            ][ATTR_ATTRIBUTE_ID]
-        )
-    ]
-    display_name_meta_for_name = attribute_metadata_for_name.get(ATTR_DISPLAY_NAME)
-    attribute_specific_name_part_for_name = (
-        display_name_meta_for_name
-        if display_name_meta_for_name
-        else f"Attribute {attr_id_str}"
-    )
-    expected_entity_description_name_in_sensor = (
-        f"SMART {attr_id_str} {attribute_specific_name_part_for_name}"
-    )
-    assert sensor.entity_description.name == expected_entity_description_name_in_sensor
-
-    # 3. Überprüfe _attr_has_entity_name (optional, aber gut zur Bestätigung)
-    assert (
-        sensor.has_entity_name is True
-    )  # oder getattr(sensor, "_attr_has_entity_name", False) is True
-
-    # Die Assertion für den voll zusammengesetzten sensor.name entfernen wir,
-    # da sie im Unit-Test direkt nach der Instanziierung nicht zuverlässig ist.
-    # Die eigentliche Zusammensetzung erfolgt durch HA-Mechanismen.
-    # Stattdessen könnten wir prüfen, ob _attr_name NICHT gesetzt ist.
-    assert (
-        not hasattr(sensor, "_attr_name")
-        or getattr(sensor, "_attr_name") is None
-        or getattr(sensor, "_attr_name") == getattr(sensor, "_SENTINEL", object())
-    )
-
-    # --- Teste Unique ID (bleibt wie zuvor, da dies vom Sensor direkt gesetzt wird) ---
-    # ... (deine unique_id Assertions) ...
-    device_name_raw_for_uid = summary_device_data_for_name.get(ATTR_DEVICE_NAME)
-    if not device_name_raw_for_uid:
-        device_name_cleaned_for_id_uid = f"disk_{wwn[-6:]}"
-    else:
-        device_name_cleaned_for_id_uid = device_name_raw_for_uid.split("/")[-1]
-    device_name_slug_for_id_uid = slugify(device_name_cleaned_for_id_uid)
-    slugified_attr_name_part_for_id_uid = slugify(attribute_specific_name_part_for_name)
-    expected_unique_id = (
-        f"{DOMAIN}_{wwn}_{device_name_slug_for_id_uid}_smart_"
-        f"{attr_id_str}_{slugified_attr_name_part_for_id_uid}"
-    )
-    assert sensor.unique_id == expected_unique_id
-
-    # --- Teste Verfügbarkeit und initialen Zustand (Status) ---
-    assert sensor.available is True
-    expected_status_code = COORDINATOR_DATA_ONE_DISK[wwn][KEY_DETAILS_SMART_LATEST][
-        ATTR_SMART_ATTRS
-    ][attr_id_str][ATTR_SMART_ATTRIBUTE_STATUS_CODE]
-    assert sensor.native_value == ATTR_SMART_STATUS_MAP.get(
-        expected_status_code, ATTR_SMART_STATUS_UNKNOWN
-    )
-
-    # --- Teste Extra State Attributes (bleibt gleich) ---
-    # ... (deine extra_state_attributes Assertions) ...
-
-    # --- Teste entity_registry_enabled_default (bleibt gleich) ---
-    # ... (deine entity_registry_enabled_default Assertion) ...
-
-    print(
-        f"SUCCESS: {test_smart_attribute_sensor_basic_init_and_state.__name__} passed!"
-    )
-
-
-# tests/test_sensor.py
-# ... (Imports, Testdaten, Hilfsfunktionen wie create_smart_attribute_sensor) ...
-# from homeassistant.util import slugify # Sicherstellen, dass slugify importiert ist
-
-
-@pytest.mark.asyncio
-async def test_smart_attribute_sensor_name_fallback(hass: HomeAssistant):
-    """Test ScrutinySmartAttributeSensor name generation fallback if display_name is missing."""
-    wwn = MOCK_WWN1
-    attr_id_str_fallback = "99"  # Ein fiktives Attribut
 
     import copy
 
-    test_data_for_name_fallback = copy.deepcopy(COORDINATOR_DATA_ONE_DISK)
+    current_test_data = copy.deepcopy(COORDINATOR_DATA_ONE_DISK)
 
-    # Füge das neue SMART-Attribut hinzu
-    numeric_attr_id_fallback = 99
-    test_data_for_name_fallback[wwn][KEY_DETAILS_SMART_LATEST][ATTR_SMART_ATTRS][
-        attr_id_str_fallback
+    # Test-Attribut hinzufügen ohne DisplayName in Metadaten
+    numeric_attr_id_for_test_case = (
+        int(attr_id_str_to_test) if is_numeric_id_case else None
+    )  # Für ATTR_ATTRIBUTE_ID
+
+    current_test_data[wwn][KEY_DETAILS_SMART_LATEST][ATTR_SMART_ATTRS][
+        attr_id_str_to_test
     ] = {
-        ATTR_ATTRIBUTE_ID: numeric_attr_id_fallback,
+        ATTR_ATTRIBUTE_ID: numeric_attr_id_for_test_case
+        if is_numeric_id_case
+        else attr_id_str_to_test,
         "value": 50,
-        ATTR_SMART_ATTRIBUTE_STATUS_CODE: 2,  # z.B. Warning
+        ATTR_SMART_ATTRIBUTE_STATUS_CODE: 2,
     }
-    # Stelle sicher, dass für ID 99 keine Metadaten mit display_name existieren
-    if (
-        str(numeric_attr_id_fallback)
-        in test_data_for_name_fallback[wwn][KEY_DETAILS_METADATA]
-    ):
-        if (
-            ATTR_DISPLAY_NAME
-            in test_data_for_name_fallback[wwn][KEY_DETAILS_METADATA][
-                str(numeric_attr_id_fallback)
-            ]
-        ):
-            del test_data_for_name_fallback[wwn][KEY_DETAILS_METADATA][
-                str(numeric_attr_id_fallback)
-            ][ATTR_DISPLAY_NAME]
-    else:
-        test_data_for_name_fallback[wwn][KEY_DETAILS_METADATA][
-            str(numeric_attr_id_fallback)
-        ] = {
-            ATTR_IS_CRITICAL: False  # Beispiel für andere Metadaten
-        }
+    current_test_data[wwn][KEY_DETAILS_METADATA][
+        attr_id_str_to_test
+    ] = {  # Verwende attr_id_str_to_test als Key
+        ATTR_IS_CRITICAL: False
+    }
 
     mock_coordinator = MagicMock(spec=ScrutinyDataUpdateCoordinator)
-    mock_coordinator.data = test_data_for_name_fallback
+    mock_coordinator.data = current_test_data
     mock_coordinator.last_update_success = True
 
     sensor = create_smart_attribute_sensor(
-        hass, mock_coordinator, wwn, attr_id_str_fallback
+        hass, mock_coordinator, wwn, attr_id_str_to_test
     )
 
     # --- Teste die Komponenten des Namens (mit Fallback) ---
-    # 1. device_info.name (wie es vom Sensor gespeichert wird)
-    summary_device_data_for_name = test_data_for_name_fallback[wwn].get(
-        KEY_SUMMARY_DEVICE, {}
-    )
+    # 1. device_info["name"] (wie es vom Sensor gespeichert wird)
+    summary_device_data_for_name = current_test_data[wwn][KEY_SUMMARY_DEVICE]
     expected_device_info_name_in_sensor = (
         f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} "
         f"({summary_device_data_for_name.get(ATTR_DEVICE_NAME, wwn[-6:])})"
     )
     assert sensor.device_info is not None
-    assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore[reportTypedDictNotRequiredAccess]
+    assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore
 
-    # 2. entity_description.name (sollte den Fallback-Namensteil enthalten)
-    # Der Fallback ist f"Attribute {attr_id_str_fallback}"
-    attribute_specific_name_part_for_name = f"Attribute {attr_id_str_fallback}"
-    expected_entity_description_name_in_sensor = (
-        f"SMART {attr_id_str_fallback} {attribute_specific_name_part_for_name}"
-    )
-    assert sensor.entity_description.name == expected_entity_description_name_in_sensor
+    # 2. entity_description.name (sollte den Fallback-Namensteil enthalten,
+    #    der von der Sensor-Logik generiert wurde)
+    assert sensor.entity_description.name == expected_fallback_name_part_in_description
 
     # 3. Überprüfe _attr_has_entity_name
     assert sensor.has_entity_name is True
 
-    # Die Assertion für den voll zusammengesetzten sensor.name entfernen wir,
-    # da sie im Unit-Test direkt nach der Instanziierung nicht zuverlässig ist.
-    # Wir haben aber im UI verifiziert, dass es funktioniert.
-    # Stattdessen:
+    # 4. Überprüfe, dass _attr_name nicht explizit gesetzt ist
     assert (
         not hasattr(sensor, "_attr_name")
         or getattr(sensor, "_attr_name") is None
@@ -839,18 +735,21 @@ async def test_smart_attribute_sensor_name_fallback(hass: HomeAssistant):
 
     # --- Teste Unique ID (mit Fallback-Namensteil) ---
     device_name_raw_for_uid = summary_device_data_for_name.get(ATTR_DEVICE_NAME)
-    if not device_name_raw_for_uid:
-        device_name_cleaned_for_id_uid = f"disk_{wwn[-6:]}"
-    else:
-        device_name_cleaned_for_id_uid = device_name_raw_for_uid.split("/")[-1]
+    device_name_cleaned_for_id_uid = (
+        device_name_raw_for_uid.split("/")[-1]
+        if device_name_raw_for_uid
+        else f"disk_{wwn[-6:]}"
+    )
     device_name_slug_for_id_uid = slugify(device_name_cleaned_for_id_uid)
 
-    # Verwende den Fallback-Teil für den Slug
-    slugified_attr_name_part_for_id_uid = slugify(attribute_specific_name_part_for_name)
+    # Der slugifizierte Teil für die ID kommt vom entity_description.name, der den Fallback enthält
+    slugified_attr_name_part_for_id_uid = slugify(
+        expected_fallback_name_part_in_description
+    )
 
     expected_unique_id = (
         f"{DOMAIN}_{wwn}_{device_name_slug_for_id_uid}_smart_"
-        f"{attr_id_str_fallback}_{slugified_attr_name_part_for_id_uid}"
+        f"{slugify(attr_id_str_to_test)}_{slugified_attr_name_part_for_id_uid}"
     )
     assert sensor.unique_id == expected_unique_id
 
@@ -860,10 +759,164 @@ async def test_smart_attribute_sensor_name_fallback(hass: HomeAssistant):
     )  # "Warning"
 
     # --- Teste entity_registry_enabled_default ---
-    # Metadaten für Attribut 99 haben ATTR_IS_CRITICAL: False (oder es fehlt und defaultet zu False)
-    expected_enabled_default = test_data_for_name_fallback[wwn][KEY_DETAILS_METADATA][
-        str(numeric_attr_id_fallback)
+    expected_enabled_default = current_test_data[wwn][KEY_DETAILS_METADATA][
+        attr_id_str_to_test
     ].get(ATTR_IS_CRITICAL, False)
     assert sensor.entity_registry_enabled_default == expected_enabled_default
 
-    print(f"SUCCESS: {test_smart_attribute_sensor_name_fallback.__name__} passed!")
+    print(
+        f"SUCCESS: test_smart_attribute_sensor_name_fallback for {attr_id_str_to_test} passed!"
+    )
+
+
+@pytest.mark.parametrize(
+    "attr_id_str_to_test, expected_display_name_from_meta, is_numeric_id_case, numeric_id_for_meta_lookup",
+    [
+        # Fall 1: Numerische ID (SATA-Stil), DisplayName ist in Metadaten unter der numerischen ID
+        (
+            "5",
+            COORDINATOR_DATA_ONE_DISK[MOCK_WWN1][KEY_DETAILS_METADATA]["5"][
+                ATTR_DISPLAY_NAME
+            ],
+            True,
+            5,
+        ),
+        # Fall 2: String-basierte ID (NVMe-Stil), DisplayName ist in Metadaten unter der String-ID
+        (
+            "critical_warning_test",
+            "Critical Warning Test Display Name",
+            False,
+            "critical_warning_test",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_smart_attribute_sensor_basic_init_and_state(
+    hass: HomeAssistant,
+    attr_id_str_to_test: str,
+    expected_display_name_from_meta: str,  # Dies ist der reine ATTR_DISPLAY_NAME Wert
+    is_numeric_id_case: bool,
+    numeric_id_for_meta_lookup: Any,  # Entweder int oder str für den Metadaten-Lookup
+):
+    """Test basic initialization and state of ScrutinySmartAttributeSensor for different ID types."""
+    wwn = MOCK_WWN1
+
+    import copy
+
+    current_test_data = copy.deepcopy(COORDINATOR_DATA_ONE_DISK)
+
+    # Wenn wir den String-ID-Fall testen, fügen wir die entsprechenden Daten hinzu
+    if not is_numeric_id_case:
+        current_test_data[wwn][KEY_DETAILS_SMART_LATEST][ATTR_SMART_ATTRS][
+            attr_id_str_to_test
+        ] = {
+            ATTR_ATTRIBUTE_ID: attr_id_str_to_test,  # Bei NVMe ist die ID oft der String selbst
+            "value": 10,  # Beispielwert
+            "raw_value": "CustomRaw",
+            ATTR_SMART_ATTRIBUTE_STATUS_CODE: 1,  # Beispielstatus "Failed"
+        }
+        current_test_data[wwn][KEY_DETAILS_METADATA][
+            attr_id_str_to_test
+        ] = {  # Verwende attr_id_str_to_test als Key
+            ATTR_DISPLAY_NAME: expected_display_name_from_meta,
+            ATTR_IS_CRITICAL: True,
+            ATTR_DESCRIPTION: f"Description for {attr_id_str_to_test}",
+        }
+
+    mock_coordinator = MagicMock(spec=ScrutinyDataUpdateCoordinator)
+    mock_coordinator.data = current_test_data
+    mock_coordinator.last_update_success = True
+
+    sensor = create_smart_attribute_sensor(
+        hass, mock_coordinator, wwn, attr_id_str_to_test
+    )
+
+    # --- Teste die Komponenten des Namens ---
+    # 1. device_info["name"]
+    summary_device_data_for_name = current_test_data[wwn][KEY_SUMMARY_DEVICE]
+    expected_device_info_name_in_sensor = (
+        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} "
+        f"({summary_device_data_for_name.get(ATTR_DEVICE_NAME, wwn[-6:])})"
+    )
+    assert sensor.device_info is not None
+    assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore
+
+    # 2. entity_description.name (sollte den von der Sensor-Logik bestimmten Namensteil enthalten)
+    #    Die Sensor-Logik ist: if display_name_meta: use display_name_meta; else: fallback.
+    #    In diesem Testfall erwarten wir immer einen display_name_meta.
+    assert sensor.entity_description.name == expected_display_name_from_meta
+
+    # 3. Überprüfe _attr_has_entity_name
+    assert sensor.has_entity_name is True
+
+    # 4. Überprüfe, dass _attr_name nicht explizit gesetzt ist
+    assert (
+        not hasattr(sensor, "_attr_name")
+        or getattr(sensor, "_attr_name") is None
+        or getattr(sensor, "_attr_name") == getattr(sensor, "_SENTINEL", object())
+    )
+
+    # --- Teste Unique ID ---
+    device_name_raw_for_uid = summary_device_data_for_name.get(ATTR_DEVICE_NAME)
+    device_name_cleaned_for_id_uid = (
+        device_name_raw_for_uid.split("/")[-1]
+        if device_name_raw_for_uid
+        else f"disk_{wwn[-6:]}"
+    )
+    device_name_slug_for_id_uid = slugify(device_name_cleaned_for_id_uid)
+
+    # Der slugifizierte Teil für die ID kommt vom entity_description.name
+    slugified_attr_name_part_for_id_uid = slugify(expected_display_name_from_meta)
+
+    expected_unique_id = (
+        f"{DOMAIN}_{wwn}_{device_name_slug_for_id_uid}_smart_"
+        f"{slugify(attr_id_str_to_test)}_{slugified_attr_name_part_for_id_uid}"
+    )
+    assert sensor.unique_id == expected_unique_id
+
+    # --- Teste Verfügbarkeit und initialen Zustand (Status) ---
+    assert sensor.available is True
+    expected_status_code = current_test_data[wwn][KEY_DETAILS_SMART_LATEST][
+        ATTR_SMART_ATTRS
+    ][attr_id_str_to_test][ATTR_SMART_ATTRIBUTE_STATUS_CODE]
+    assert sensor.native_value == ATTR_SMART_STATUS_MAP.get(
+        expected_status_code, ATTR_SMART_STATUS_UNKNOWN
+    )
+
+    # --- Teste Extra State Attributes ---
+    attributes = sensor.extra_state_attributes
+    attribute_data_from_coordinator = current_test_data[wwn][KEY_DETAILS_SMART_LATEST][
+        ATTR_SMART_ATTRS
+    ][attr_id_str_to_test]
+    # Für Metadaten verwenden wir numeric_id_for_meta_lookup als Schlüssel,
+    # da dies der Schlüssel ist, den create_smart_attribute_sensor verwendet,
+    # um die Metadaten basierend auf der *numerischen* ID (oder dem String-Key bei NVMe) zu holen.
+    attribute_metadata_from_coordinator = current_test_data[wwn][KEY_DETAILS_METADATA][
+        str(numeric_id_for_meta_lookup)
+    ]  # Sicherstellen, dass der Key ein String ist
+
+    assert (
+        attributes[ATTR_ATTRIBUTE_ID]
+        == attribute_data_from_coordinator[ATTR_ATTRIBUTE_ID]
+    )
+    assert attributes["attribute_key_id"] == attr_id_str_to_test
+    # ... (Rest der extra_state_attributes Assertions wie zuvor)
+    assert attributes[ATTR_RAW_VALUE] == attribute_data_from_coordinator[ATTR_RAW_VALUE]
+    assert attributes[ATTR_NORMALIZED_VALUE] == attribute_data_from_coordinator["value"]
+    assert attributes.get(ATTR_DESCRIPTION) == attribute_metadata_from_coordinator.get(
+        ATTR_DESCRIPTION
+    )
+    assert attributes.get(ATTR_IS_CRITICAL) == attribute_metadata_from_coordinator.get(
+        ATTR_IS_CRITICAL
+    )
+    # ... etc. für WORST, THRESH, WHEN_FAILED, STATUS_REASON, FAILURE_RATE
+
+    # --- Teste entity_registry_enabled_default ---
+    expected_enabled_default = attribute_metadata_from_coordinator.get(
+        ATTR_IS_CRITICAL, False
+    )
+    assert sensor.entity_registry_enabled_default == expected_enabled_default
+
+    print(
+        f"SUCCESS: test_smart_attribute_sensor_basic_init_and_state for {attr_id_str_to_test} passed!"
+    )
