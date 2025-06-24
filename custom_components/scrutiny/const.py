@@ -13,7 +13,7 @@ DOMAIN: str = "scrutiny"
 # User-visible name of the integration. Also used as default manufacturer for devices.
 NAME: str = "Scrutiny"
 # Version of the integration.
-VERSION: str = "0.3.0"
+VERSION: str = "0.3.3"
 
 # Configuration keys used in config_flow.py and __init__.py.
 CONF_HOST: str = "host"  # Key for the Scrutiny server host.
