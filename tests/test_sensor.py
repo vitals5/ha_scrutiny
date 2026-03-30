@@ -33,6 +33,7 @@ from custom_components.scrutiny.const import (
     ATTR_DEVICE_NAME,
     ATTR_MODEL_NAME,
     ATTR_FIRMWARE,
+    ATTR_SERIAL_NUMBER,
     ATTR_TEMPERATURE,
     ATTR_POWER_ON_HOURS,
     ATTR_SUMMARY_DEVICE_STATUS,
@@ -74,6 +75,8 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 MOCK_WWN1 = "wwn_disk1_sensor_test"
 MOCK_WWN2 = "wwn_disk2_sensor_test"
+MOCK_SERIAL1 = "SN_DISK1_ABC123"
+MOCK_SERIAL2 = "SN_DISK2_XYZ789"
 
 COORDINATOR_DATA_ONE_DISK = {
     MOCK_WWN1: {
@@ -84,6 +87,7 @@ COORDINATOR_DATA_ONE_DISK = {
             "manufacturer": "TestManu",  # For DeviceInfo
             ATTR_CAPACITY: 1000 * 1024 * 1024 * 1024,  # 1TB
             ATTR_SUMMARY_DEVICE_STATUS: 0,
+            ATTR_SERIAL_NUMBER: MOCK_SERIAL1,
         },
         KEY_SUMMARY_SMART: {  # Fallback data
             ATTR_TEMPERATURE: 25,
@@ -130,6 +134,7 @@ COORDINATOR_DATA_TWO_DISKS = {
             ATTR_FIRMWARE: "FWXYZ",
             ATTR_CAPACITY: 500 * 1024 * 1024 * 1024,  # 500GB
             ATTR_SUMMARY_DEVICE_STATUS: 1,  # Example: Warning status
+            ATTR_SERIAL_NUMBER: MOCK_SERIAL2,
         },
         KEY_SUMMARY_SMART: {},
         KEY_DETAILS_DEVICE: {},
@@ -186,14 +191,15 @@ def create_main_sensor(
     # Hole die Daten für die DeviceInfo aus den Koordinator-Daten
     # (simuliert, was async_setup_entry tun würde)
     summary_device_data = coordinator.data.get(wwn, {}).get(KEY_SUMMARY_DEVICE, {})
-    device_info_name = (
-        f"{summary_device_data.get(ATTR_MODEL_NAME, 'Disk')} "
-        f"({summary_device_data.get(ATTR_DEVICE_NAME, wwn[-6:])})"
-    )
+    serial_number = summary_device_data.get(ATTR_SERIAL_NUMBER)
+    model_part = summary_device_data.get(ATTR_MODEL_NAME, "Disk")
+    id_part = serial_number if serial_number else wwn[-6:]
+    device_info_name = f"{model_part} ({id_part})"
     device_info = DeviceInfo(
         identifiers={(DOMAIN, wwn)},
         name=device_info_name,
         model=summary_device_data.get(ATTR_MODEL_NAME),
+        serial_number=serial_number,
         manufacturer=summary_device_data.get("manufacturer")
         or "Scrutiny Integration Test",  # Adjusted
         sw_version=summary_device_data.get(ATTR_FIRMWARE),
@@ -205,6 +211,7 @@ def create_main_sensor(
         entity_description=entity_description,
         wwn=wwn,
         device_info=device_info,
+        serial_number=serial_number,
     )
     sensor.hass = hass  # Sensors often have a hass reference
     return sensor
@@ -220,14 +227,15 @@ def create_smart_attribute_sensor(
 ) -> ScrutinySmartAttributeSensor:
     """Helper to create a ScrutinySmartAttributeSensor instance for testing."""
     summary_device_data = coordinator.data.get(wwn, {}).get(KEY_SUMMARY_DEVICE, {})
-    device_info_name = (
-        f"{summary_device_data.get(ATTR_MODEL_NAME, 'Disk')} "
-        f"({summary_device_data.get(ATTR_DEVICE_NAME, wwn[-6:])})"
-    )
+    serial_number = summary_device_data.get(ATTR_SERIAL_NUMBER)
+    model_part = summary_device_data.get(ATTR_MODEL_NAME, "Disk")
+    id_part = serial_number if serial_number else wwn[-6:]
+    device_info_name = f"{model_part} ({id_part})"
     device_info = DeviceInfo(  # Simplified DeviceInfo for the test
         identifiers={(DOMAIN, wwn)},
         name=device_info_name,
         model=summary_device_data.get(ATTR_MODEL_NAME),
+        serial_number=serial_number,
         manufacturer="Scrutiny Test SMART",
     )
 
@@ -247,6 +255,7 @@ def create_smart_attribute_sensor(
         device_info=device_info,
         attribute_id_str=attribute_id_str,
         attribute_metadata=attribute_metadata,
+        serial_number=serial_number,
     )
     sensor.hass = hass
     return sensor
@@ -299,6 +308,9 @@ async def test_async_setup_entry_one_disk(hass: HomeAssistant):
                 ]  # type: ignore
                 in entity.device_info["name"]  # type: ignore
             )
+            # Serial number must appear in the device name and in the DeviceInfo field
+            assert MOCK_SERIAL1 in entity.device_info["name"]  # type: ignore
+            assert entity.device_info.get("serial_number") == MOCK_SERIAL1  # type: ignore
         elif isinstance(entity, ScrutinySmartAttributeSensor):
             smart_attribute_sensor_count += 1
             assert entity.device_info is not None
@@ -712,9 +724,10 @@ async def test_smart_attribute_sensor_name_fallback(
     # --- Teste die Komponenten des Namens (mit Fallback) ---
     # 1. device_info["name"] (wie es vom Sensor gespeichert wird)
     summary_device_data_for_name = current_test_data[wwn][KEY_SUMMARY_DEVICE]
+    _serial = summary_device_data_for_name.get(ATTR_SERIAL_NUMBER)
+    _id_part = _serial or summary_device_data_for_name.get(ATTR_DEVICE_NAME) or wwn[-6:]
     expected_device_info_name_in_sensor = (
-        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} "
-        f"({summary_device_data_for_name.get(ATTR_DEVICE_NAME, wwn[-6:])})"
+        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} ({_id_part})"
     )
     assert sensor.device_info is not None
     assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore
@@ -734,21 +747,12 @@ async def test_smart_attribute_sensor_name_fallback(
     )
 
     # --- Teste Unique ID (mit Fallback-Namensteil) ---
-    device_name_raw_for_uid = summary_device_data_for_name.get(ATTR_DEVICE_NAME)
-    device_name_cleaned_for_id_uid = (
-        device_name_raw_for_uid.split("/")[-1]
-        if device_name_raw_for_uid
-        else f"disk_{wwn[-6:]}"
-    )
-    device_name_slug_for_id_uid = slugify(device_name_cleaned_for_id_uid)
-
     # Der slugifizierte Teil für die ID kommt vom entity_description.name, der den Fallback enthält
     slugified_attr_name_part_for_id_uid = slugify(
         expected_fallback_name_part_in_description
     )
-
     expected_unique_id = (
-        f"{DOMAIN}_{wwn}_{device_name_slug_for_id_uid}_smart_"
+        f"{DOMAIN}_{wwn}_smart_"
         f"{slugify(attr_id_str_to_test)}_{slugified_attr_name_part_for_id_uid}"
     )
     assert sensor.unique_id == expected_unique_id
@@ -834,9 +838,10 @@ async def test_smart_attribute_sensor_basic_init_and_state(
     # --- Teste die Komponenten des Namens ---
     # 1. device_info["name"]
     summary_device_data_for_name = current_test_data[wwn][KEY_SUMMARY_DEVICE]
+    _serial = summary_device_data_for_name.get(ATTR_SERIAL_NUMBER)
+    _id_part = _serial or summary_device_data_for_name.get(ATTR_DEVICE_NAME) or wwn[-6:]
     expected_device_info_name_in_sensor = (
-        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} "
-        f"({summary_device_data_for_name.get(ATTR_DEVICE_NAME, wwn[-6:])})"
+        f"{summary_device_data_for_name.get(ATTR_MODEL_NAME, 'Disk')} ({_id_part})"
     )
     assert sensor.device_info is not None
     assert sensor.device_info["name"] == expected_device_info_name_in_sensor  # type: ignore
@@ -857,19 +862,10 @@ async def test_smart_attribute_sensor_basic_init_and_state(
     )
 
     # --- Teste Unique ID ---
-    device_name_raw_for_uid = summary_device_data_for_name.get(ATTR_DEVICE_NAME)
-    device_name_cleaned_for_id_uid = (
-        device_name_raw_for_uid.split("/")[-1]
-        if device_name_raw_for_uid
-        else f"disk_{wwn[-6:]}"
-    )
-    device_name_slug_for_id_uid = slugify(device_name_cleaned_for_id_uid)
-
     # Der slugifizierte Teil für die ID kommt vom entity_description.name
     slugified_attr_name_part_for_id_uid = slugify(expected_display_name_from_meta)
-
     expected_unique_id = (
-        f"{DOMAIN}_{wwn}_{device_name_slug_for_id_uid}_smart_"
+        f"{DOMAIN}_{wwn}_smart_"
         f"{slugify(attr_id_str_to_test)}_{slugified_attr_name_part_for_id_uid}"
     )
     assert sensor.unique_id == expected_unique_id

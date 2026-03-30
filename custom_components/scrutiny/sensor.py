@@ -46,6 +46,7 @@ from .const import (
     ATTR_SMART_OVERALL_STATUS,
     ATTR_SMART_STATUS_MAP,
     ATTR_SMART_STATUS_UNKNOWN,
+    ATTR_SERIAL_NUMBER,
     ATTR_STATUS_REASON,
     ATTR_SUMMARY_DEVICE_STATUS,
     ATTR_TEMPERATURE,
@@ -175,16 +176,20 @@ async def async_setup_entry(
 
         # Create DeviceInfo for this disk. All sensors related
         #  to this disk will be associated with this device.
-        device_info_name = (
-            # Use model name or "Disk"
-            f"{summary_device_data.get(ATTR_MODEL_NAME, 'Disk')} "
-            # Use device name or last 6 chars of WWN
-            f"({summary_device_data.get(ATTR_DEVICE_NAME, wwn[-6:])})"
-        )
+        serial_number = summary_device_data.get(ATTR_SERIAL_NUMBER)
+
+        # Use the serial number in the device name so the user can cross-reference
+        # against tools like TrueNAS that also identify disks by serial number.
+        # Fall back to the last 6 chars of the WWN if no serial number is available.
+        model_part = summary_device_data.get(ATTR_MODEL_NAME, "Disk")
+        id_part = serial_number if serial_number else wwn[-6:]
+        device_info_name = f"{model_part} ({id_part})"
+
         device_info = DeviceInfo(
             identifiers={(DOMAIN, wwn)},  # Unique identifier for this device (WWN)
             name=device_info_name,
             model=summary_device_data.get(ATTR_MODEL_NAME),
+            serial_number=serial_number,  # Surfaced in the HA device registry UI
             manufacturer=summary_device_data.get("manufacturer")
             or INTEGRATION_NAME,  # Use Scrutiny's manufacturer or integration name
             sw_version=summary_device_data.get(ATTR_FIRMWARE),
@@ -203,6 +208,7 @@ async def async_setup_entry(
                     entity_description=description,
                     wwn=wwn,
                     device_info=device_info,
+                    serial_number=serial_number,
                 )
                 for description in MAIN_DISK_SENSOR_DESCRIPTIONS
             ]
@@ -270,6 +276,7 @@ async def async_setup_entry(
                         attribute_id_str=actual_attribute_id_for_sensor,
                         # Metadata for this attribute
                         attribute_metadata=attr_metadata,
+                        serial_number=serial_number,
                     )
                 )
         else:
@@ -305,11 +312,13 @@ class ScrutinyMainDiskSensor(
         entity_description: SensorEntityDescription,  # Defines key, name, units, etc.
         wwn: str,  # WWN of the disk this sensor belongs to
         device_info: DeviceInfo,  # DeviceInfo for the parent disk
+        serial_number: str | None = None,  # Serial number for extra state attributes
     ) -> None:
         """Initialize the main disk sensor."""
         super().__init__(coordinator)  # Initialize CoordinatorEntity
         self.entity_description = entity_description  # Store the description
         self._wwn = wwn  # Store the disk's WWN
+        self._serial_number = serial_number
         self._attr_device_info = device_info  # Associate with the disk's device
         # Create a unique ID for this sensor entity.
         self._attr_unique_id = f"{DOMAIN}_{self._wwn}_{self.entity_description.key}"
@@ -385,6 +394,16 @@ class ScrutinyMainDiskSensor(
         # Set the sensor's native value.
         self._attr_native_value = value
 
+        # Expose serial number and current device path as extra state attributes
+        # so the disk can be identified regardless of which /dev/sdX path it is on.
+        extra: dict[str, Any] = {}
+        if self._serial_number:
+            extra[ATTR_SERIAL_NUMBER] = self._serial_number
+        device_path = summary_device_data.get(ATTR_DEVICE_NAME)
+        if device_path:
+            extra[ATTR_DEVICE_NAME] = device_path
+        self._attr_extra_state_attributes = extra if extra else {}
+
     def _handle_coordinator_update(self) -> None:
         """
         Handle updated data from the coordinator.
@@ -413,10 +432,12 @@ class ScrutinySmartAttributeSensor(
         attribute_metadata: dict[
             str, Any
         ],  # Metadata for this attribute (name, description, etc.)
+        serial_number: str | None = None,  # Serial number for extra state attributes
     ) -> None:
         """Initialize the SMART attribute sensor."""
         super().__init__(coordinator)
         self._wwn = wwn
+        self._serial_number = serial_number
         self._attribute_id_str = attribute_id_str  # e.g., "5", "194"
         self._attribute_metadata = (
             attribute_metadata  # e.g., {"display_name": "Reallocated Sector Ct", ...}
@@ -449,22 +470,11 @@ class ScrutinySmartAttributeSensor(
 
         # Create a unique ID for this sensor entity.
         # Slugify the name part to ensure it's URL-friendly and consistent.
-        summary_device_data = coordinator.data.get(wwn, {}).get(KEY_SUMMARY_DEVICE, {})
-        device_name_raw = summary_device_data.get(ATTR_DEVICE_NAME)
-        if not device_name_raw:
-            device_name_cleaned_for_id = f"disk_{wwn[-6:]}"
-        else:
-            device_name_cleaned_for_id = device_name_raw.split("/")[-1]
-        device_name_slug_for_id = slugify(device_name_cleaned_for_id)
-
-        # Verwende den ursprünglichen, eindeutigen
-        # _attribute_id_str und den slugifizierten Anzeigenamen
         slugified_display_name_for_id = slugify(
             self.attribute_name_for_entity_description
         )
-
         self._attr_unique_id = (
-            f"{DOMAIN}_{self._wwn}_{device_name_slug_for_id}_smart_"
+            f"{DOMAIN}_{self._wwn}_smart_"
             f"{slugify(self._attribute_id_str)}_{slugified_display_name_for_id}"
         )
 
@@ -540,6 +550,11 @@ class ScrutinySmartAttributeSensor(
 
         # Populate extra state attributes with detailed
         #  information about the SMART attribute.
+        # Also include serial_number and device_name so the disk can be identified
+        # regardless of which /dev/sdX path it is currently on.
+        summary_device_data = self.coordinator.data.get(self._wwn, {}).get(
+            KEY_SUMMARY_DEVICE, {}
+        )
         attributes: dict[str, Any] = {
             ATTR_ATTRIBUTE_ID: current_attr_data.get(
                 ATTR_ATTRIBUTE_ID
@@ -562,6 +577,9 @@ class ScrutinySmartAttributeSensor(
                 ATTR_IDEAL_VALUE_DIRECTION
             ),
             "attribute_display_name": self._attribute_metadata.get(ATTR_DISPLAY_NAME),
+            # Disk identification: serial number and current device path
+            ATTR_SERIAL_NUMBER: self._serial_number,
+            ATTR_DEVICE_NAME: summary_device_data.get(ATTR_DEVICE_NAME),
         }
         # Filter out any attributes that are None to keep the state attributes clean.
         self._attr_extra_state_attributes = {
