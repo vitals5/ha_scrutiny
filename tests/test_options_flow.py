@@ -1,110 +1,127 @@
-# tests/test_options_flow.py (or at the end of test_config_flow.py)
+"""Tests for ScrutinyOptionsFlowHandler (options_flow.py).
 
-import pytest
-from unittest.mock import patch  # AsyncMock not strictly necessary here
+Covers: form display, successful save, invalid scan interval.
+Uses ha_stubs — no HA installation required.
+"""
 
-from homeassistant.data_entry_flow import InvalidData  # Import the exception
+import asyncio
+import os
+import sys
+import unittest
 
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant import data_entry_flow
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TESTS = os.path.join(ROOT, "tests")
+sys.path.insert(0, ROOT)
+sys.path.insert(0, TESTS)
+
+import ha_stubs as stubs
+
+stubs.install()
+
+from ha_stubs import ConfigEntry, reset_registry
 
 from custom_components.scrutiny.const import (
-    DOMAIN,
-    CONF_HOST,
-    CONF_PORT,
+    CONF_ENABLE_ALL_ATTRS,
+    CONF_ENABLE_CRITICAL_ATTRS,
+    CONF_ENABLE_RAW_VALUES,
     CONF_SCAN_INTERVAL,
+    CONF_SHOW_ARCHIVED,
+    DEFAULT_ENABLE_ALL_ATTRS,
+    DEFAULT_ENABLE_CRITICAL_ATTRS,
+    DEFAULT_ENABLE_RAW_VALUES,
     DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_SHOW_ARCHIVED,
 )
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from custom_components.scrutiny.options_flow import ScrutinyOptionsFlowHandler
 
-# Data for the initial ConfigEntry
-INITIAL_CONFIG_DATA = {
-    CONF_HOST: "scrutiny.options.local",
-    CONF_PORT: 8080,
-    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL_MINUTES,  # Start with default
-}
+run = asyncio.run
 
 
-@pytest.mark.asyncio
-async def test_options_flow_init_and_save(
-    hass: HomeAssistant,
-    enable_custom_integrations: None,  # Important for the OptionsFlow Handler to be found
-):
-    """Test initializing the options flow and saving a new scan interval."""
-    # 1. Create and register a ConfigEntry for which options should be changed
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data=INITIAL_CONFIG_DATA,
-        title="Scrutiny Options Test",
-        # Options are initially empty or have defaults
-        options={},
+def _make_handler(options=None):
+    entry = ConfigEntry(
+        entry_id="opts_entry",
+        data={},
+        options=options or {},
     )
-    config_entry.add_to_hass(hass)
-
-    # 2. Start the Options Flow for this ConfigEntry
-    result = await hass.config_entries.options.async_init(config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # 3. Check if the options form is displayed correctly
-    assert result["type"] == data_entry_flow.FlowResultType.FORM  # type: ignore
-    assert result["step_id"] == "init"  # type: ignore
-
-    # 4. Simulate user input in the Options Flow
-    new_scan_interval = 15
-    result2 = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={CONF_SCAN_INTERVAL: new_scan_interval},
-    )
-    await hass.async_block_till_done()
-
-    # 5. Check if the flow was successful and created/saved the options
-    assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY  # type: ignore
-    # The 'title' is often empty for Options Flows; data is stored in 'data'
-    assert result2["data"] == {CONF_SCAN_INTERVAL: new_scan_interval}  # type: ignore
-
-    # 6. Überprüfe, ob die Optionen im ConfigEntry aktualisiert wurden
-    assert config_entry.options == {CONF_SCAN_INTERVAL: new_scan_interval}
-
-    print(f"SUCCESS: {test_options_flow_init_and_save.__name__} passed!")
+    handler = ScrutinyOptionsFlowHandler()
+    # OptionsFlow.config_entry is normally injected by HA; wire it directly here.
+    handler.config_entry = entry
+    return handler, entry
 
 
-@pytest.mark.asyncio
-async def test_options_flow_invalid_input(
-    hass: HomeAssistant,
-    enable_custom_integrations: None,
-):
-    """Test options flow raises InvalidData for invalid scan interval input."""
-    config_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data=INITIAL_CONFIG_DATA,
-        options={},  # Start with empty options
-    )
-    config_entry.add_to_hass(hass)
+class TestOptionsFlow(unittest.TestCase):
+    def setUp(self):
+        reset_registry()
 
-    result = await hass.config_entries.options.async_init(config_entry.entry_id)
-    await hass.async_block_till_done()
+    def test_shows_form_when_no_input(self):
+        handler, _ = _make_handler()
+        result = run(handler.async_step_init(None))
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["step_id"], "init")
 
-    # Simulate invalid input
-    invalid_scan_interval = 0
+    def test_save_new_scan_interval(self):
+        handler, entry = _make_handler(
+            options={CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL_MINUTES}
+        )
+        result = run(handler.async_step_init({CONF_SCAN_INTERVAL: 15}))
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(result["data"][CONF_SCAN_INTERVAL], 15)
+        # Booleans should default to False when not submitted
+        self.assertFalse(result["data"][CONF_SHOW_ARCHIVED])
+        self.assertFalse(result["data"][CONF_ENABLE_CRITICAL_ATTRS])
+        self.assertFalse(result["data"][CONF_ENABLE_ALL_ATTRS])
+        self.assertFalse(result["data"][CONF_ENABLE_RAW_VALUES])
 
-    # Expect InvalidData to be thrown, as schema validation
-    # by the Home Assistant OptionsFlowManager fails.
-    with pytest.raises(InvalidData) as excinfo:
-        await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={CONF_SCAN_INTERVAL: invalid_scan_interval},
+    def test_save_all_options(self):
+        handler, _ = _make_handler()
+        user_input = {
+            CONF_SCAN_INTERVAL: 30,
+            CONF_SHOW_ARCHIVED: True,
+            CONF_ENABLE_CRITICAL_ATTRS: True,
+            CONF_ENABLE_ALL_ATTRS: False,
+            CONF_ENABLE_RAW_VALUES: True,
+        }
+        result = run(handler.async_step_init(user_input))
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(result["data"][CONF_SCAN_INTERVAL], 30)
+        self.assertTrue(result["data"][CONF_SHOW_ARCHIVED])
+        self.assertTrue(result["data"][CONF_ENABLE_CRITICAL_ATTRS])
+        self.assertFalse(result["data"][CONF_ENABLE_ALL_ATTRS])
+        self.assertTrue(result["data"][CONF_ENABLE_RAW_VALUES])
+
+    def test_invalid_scan_interval_zero(self):
+        handler, _ = _make_handler()
+        result = run(handler.async_step_init({CONF_SCAN_INTERVAL: 0}))
+        self.assertEqual(result["type"], "form")
+        self.assertIn("scan_interval", result["errors"])
+
+    def test_invalid_scan_interval_negative(self):
+        handler, _ = _make_handler()
+        result = run(handler.async_step_init({CONF_SCAN_INTERVAL: -5}))
+        self.assertEqual(result["type"], "form")
+        self.assertIn("scan_interval", result["errors"])
+
+    def test_defaults_used_when_no_existing_options(self):
+        """Options fallback to DEFAULT_* when none are stored yet."""
+        handler, _ = _make_handler(options={})
+        result = run(
+            handler.async_step_init({CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL_MINUTES})
+        )
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(
+            result["data"][CONF_SCAN_INTERVAL], DEFAULT_SCAN_INTERVAL_MINUTES
+        )
+        self.assertEqual(result["data"][CONF_SHOW_ARCHIVED], DEFAULT_SHOW_ARCHIVED)
+        self.assertEqual(
+            result["data"][CONF_ENABLE_CRITICAL_ATTRS], DEFAULT_ENABLE_CRITICAL_ATTRS
+        )
+        self.assertEqual(
+            result["data"][CONF_ENABLE_ALL_ATTRS], DEFAULT_ENABLE_ALL_ATTRS
+        )
+        self.assertEqual(
+            result["data"][CONF_ENABLE_RAW_VALUES], DEFAULT_ENABLE_RAW_VALUES
         )
 
-    # Check the details of the InvalidData exception
-    assert excinfo.value.schema_errors is not None
-    assert CONF_SCAN_INTERVAL in excinfo.value.schema_errors
-    # The error message comes from your 'msg' in the voluptuous schema
-    assert (
-        "Scan interval must be at least 1 minute"
-        in excinfo.value.schema_errors[CONF_SCAN_INTERVAL]
-    )
-    # The original options should not have been changed, as the flow aborted
-    assert config_entry.options == {}
 
-    print(f"SUCCESS: {test_options_flow_invalid_input.__name__} passed!")
+if __name__ == "__main__":
+    unittest.main()

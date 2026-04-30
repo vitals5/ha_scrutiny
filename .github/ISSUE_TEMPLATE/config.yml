@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Home Assistant Community Forum
+    url: https://community.home-assistant.io
+    about: Ask general Home Assistant questions on the community forum.
+  - name: Scrutiny Project
+    url: https://github.com/AnalogJ/scrutiny
+    about: For issues with the Scrutiny server itself, please use the upstream project.

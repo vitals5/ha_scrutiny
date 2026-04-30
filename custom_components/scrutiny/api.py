@@ -1,43 +1,29 @@
 # api.py
 """API client for interacting with a Scrutiny web server."""
 
-from __future__ import annotations
-
 import asyncio
 import json
-from typing import Any, NoReturn  # NoReturn for functions that always raise
+from typing import Any, NoReturn
 
-import aiohttp  # For making asynchronous HTTP requests
+import aiohttp
 
-# Import logger from the integration's const module
 from .const import ATTR_METADATA, LOGGER
 
 
-# Custom exception classes for Scrutiny API interactions.
 class ScrutinyApiError(Exception):
-    """Generic base exception for Scrutiny API errors."""
+    """Base exception for Scrutiny API errors."""
 
 
 class ScrutinyApiConnectionError(ScrutinyApiError):
-    """
-    Exception raised for errors when connecting to the Scrutiny API.
-
-    This typically includes network issues like host not found,
-    connection refused, or timeouts.
-    """
+    """Raised when the Scrutiny server cannot be reached (timeout, refused, etc.)."""
 
 
 class ScrutinyApiAuthError(ScrutinyApiError):
-    """Exception raised for authentication errors with the Scrutiny API."""
+    """Raised on authentication failure (unexpected; Scrutiny is unauthenticated)."""
 
 
 class ScrutinyApiResponseError(ScrutinyApiError):
-    """
-    Exception raised for issues with the Scrutiny API's response.
-
-    This includes unexpected data formats, missing expected fields,
-    or if the API itself indicates an error (e.g., 'success: false').
-    """
+    """Raised when the Scrutiny API returns an unexpected or invalid response."""
 
 
 def _construct_api_exception_message(
@@ -103,21 +89,25 @@ def _raise_scrutiny_api_error(message: str, original_exception: Exception) -> No
 class ScrutinyApiClient:
     """Client to interact with the Scrutiny API."""
 
-    def __init__(self, host: str, port: int, session: aiohttp.ClientSession) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        session: aiohttp.ClientSession,
+    ) -> None:
         """
         Initialize the API client.
 
         Args:
-            host: The hostname or IP address of the Scrutiny server.
-            port: The port number of the Scrutiny server.
+            base_url: The full base URL of the Scrutiny server,
+                e.g. ``http://scrutiny.local:8080``. The ``/api`` path is
+                appended automatically.
             session: An aiohttp.ClientSession instance for making requests.
+                Create with ``async_get_clientsession(hass, verify_ssl=...)``
+                to control SSL certificate verification.
 
         """
-        self._host = host
-        self._port = port
         self._session = session
-        # Construct the base URL for all API requests.
-        self._base_url = f"http://{self._host}:{self._port}/api"
+        self._base_url = f"{base_url.rstrip('/')}/api"
 
     async def _request(
         self, method: str, endpoint: str, **kwargs: Any
@@ -127,7 +117,7 @@ class ScrutinyApiClient:
 
         Args:
             method: The HTTP method (e.g., "get", "post").
-            endpoint: The API endpoint path (e.g., "summary", "device/wwn/details").
+            endpoint: The API endpoint path (e.g., "summary", "device/{uuid}/details").
             **kwargs: Additional arguments to pass to the aiohttp.ClientSession.request
             method.
 
@@ -145,11 +135,10 @@ class ScrutinyApiClient:
 
         try:
             # Set a timeout for the request.
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(15):
                 response = await self._session.request(
                     method,
                     url,
-                    ssl=False,  # Assuming Scrutiny runs on HTTP locally.
                     **kwargs,
                 )
                 # Raise an HTTPError for bad responses (4xx or 5xx).
@@ -281,11 +270,15 @@ class ScrutinyApiClient:
 
         return summary_data
 
-    async def async_get_device_details(self, wwn: str) -> dict[str, Any]:
-        """Fetch detailed information for a specific disk."""
-        endpoint = f"device/{wwn}/details"
-        response_obj: aiohttp.ClientResponse | None = None  # Renamed
-        LOGGER.debug("Requesting Scrutiny device details for WWN: %s", wwn)
+    async def async_get_device_details(self, disk_id: str) -> dict[str, Any]:
+        """Fetch detailed information for a specific disk by its Scrutiny identifier.
+
+        On Scrutiny ≥ 0.9.0 *disk_id* is a UUIDv5; on older releases it is the
+        WWN hex string. The integration treats it as an opaque key in both cases.
+        """
+        endpoint = f"device/{disk_id}/details"
+        response_obj: aiohttp.ClientResponse | None = None
+        LOGGER.debug("Requesting Scrutiny device details for disk: %s", disk_id)
 
         try:
             response_obj = await self._request("get", endpoint)
@@ -294,7 +287,7 @@ class ScrutinyApiClient:
             if "application/json" not in content_type:
                 msg = (
                     "Expected JSON from Scrutiny "
-                    f"device details (WWN: {wwn}), got {content_type}"
+                    f"device details (disk: {disk_id}), got {content_type}"
                 )
                 _raise_scrutiny_api_response_error(msg)
 
@@ -303,7 +296,7 @@ class ScrutinyApiClient:
         except json.JSONDecodeError as exc:
             msg = (
                 "Invalid JSON response received from "
-                f"Scrutiny device details (WWN: {wwn})"
+                f"Scrutiny device details (disk: {disk_id})"
             )
             _raise_scrutiny_api_response_error(msg, exc)
 
@@ -315,15 +308,18 @@ class ScrutinyApiClient:
             raise
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception(
-                "Unexpected error processing Scrutiny device details (WWN: %s)", wwn
+                "Unexpected error processing Scrutiny device details (disk: %s)",
+                disk_id,
             )
-            msg = f"Unexpected error processing Scrutiny device details (WWN: {wwn})"
+            msg = (
+                f"Unexpected error processing Scrutiny device details (disk: {disk_id})"
+            )
             _raise_scrutiny_api_error(msg, exc)
 
         # Process the successfully parsed JSON data.
         LOGGER.debug(
-            "Scrutiny API device details FULL response for WWN %s: %s",
-            wwn,
+            "Scrutiny API device details FULL response for disk %s: %s",
+            disk_id,
             str(full_api_response_data)[:2000],
         )
 
@@ -332,7 +328,7 @@ class ScrutinyApiClient:
         ) or not full_api_response_data.get("success"):
             err_msg = (
                 "Scrutiny API device details call not successful or unexpected format "
-                f"(WWN: {wwn}): {str(full_api_response_data)[:200]}"
+                f"(disk: {disk_id}): {str(full_api_response_data)[:200]}"
             )
             _raise_scrutiny_api_response_error(err_msg)
 
@@ -343,7 +339,8 @@ class ScrutinyApiClient:
             err_msg = (
                 "Scrutiny API device details "
                 "response is missing 'data' or 'metadata' key "
-                f"(WWN: {wwn}): Keys present: {list(full_api_response_data.keys())}"
+                f"(disk: {disk_id}): "
+                f"Keys present: {list(full_api_response_data.keys())}"
             )
             LOGGER.error(err_msg)
             _raise_scrutiny_api_response_error(err_msg)

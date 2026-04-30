@@ -1,218 +1,232 @@
 """Config flow for the Scrutiny Home Assistant integration."""
 
-from __future__ import annotations
+from typing import Any
 
-from typing import Any  # 'Any' for user_input type hint in async_step_user
-
-import voluptuous as vol  # For defining data validation schemas
-from homeassistant import (
-    config_entries,
-)  # Base class for ConfigFlow, ConfigFlowResult, etc.
-from homeassistant.const import CONF_HOST  # Standard Home Assistant constant for host
+import voluptuous as vol
+from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-# Import port constant from our integration's const.py
-from homeassistant.helpers.aiohttp_client import (
-    async_get_clientsession,
-)  # For getting HA's HTTP session
-
-# Import API client and specific exceptions for robust
-#  error handling during connection testing.
 from .api import (
-    ScrutinyApiAuthError,  # For authentication failures
-    ScrutinyApiClient,  # The client to interact with Scrutiny API
-    ScrutinyApiConnectionError,  # For network/connection issues
-    ScrutinyApiResponseError,  # For unexpected API responses
-    # ScrutinyApiError, # General base error, caught by specific ones or Exception
+    ScrutinyApiAuthError,
+    ScrutinyApiClient,
+    ScrutinyApiConnectionError,
+    ScrutinyApiResponseError,
 )
-
-# Import constants from our integration.
 from .const import (
-    CONF_PORT,
+    CONF_ENABLE_ALL_ATTRS,
+    CONF_ENABLE_CRITICAL_ATTRS,
+    CONF_ENABLE_RAW_VALUES,
     CONF_SCAN_INTERVAL,
-    DEFAULT_PORT,
+    CONF_SHOW_ARCHIVED,
+    CONF_URL,
+    CONF_VERIFY_SSL,
+    DEFAULT_ENABLE_ALL_ATTRS,
+    DEFAULT_ENABLE_CRITICAL_ATTRS,
+    DEFAULT_ENABLE_RAW_VALUES,
     DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_SHOW_ARCHIVED,
+    DEFAULT_URL,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
     LOGGER,
-)  # DOMAIN for config flow, LOGGER for logging
+)
 from .options_flow import ScrutinyOptionsFlowHandler
 
-# Data schema for the user configuration form.
-# This defines the fields the user will see in the UI, their types, and default values.
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        # Hostname or IP address of the Scrutiny server. This field is required.
-        vol.Required(CONF_HOST): str,
-        # Port number for the Scrutiny server. This field
-        #  is optional and defaults to DEFAULT_PORT.
-        vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
-        vol.Optional(
-            CONF_SCAN_INTERVAL,
-            default=DEFAULT_SCAN_INTERVAL_MINUTES,  # Verwende Minuten für die Eingabe
-        ): vol.All(vol.Coerce(int), vol.Range(min=1)),
-    }
-)
+
+def _build_connection_schema(
+    url: str = DEFAULT_URL,
+    verify_ssl: bool = DEFAULT_VERIFY_SSL,
+) -> vol.Schema:
+    """
+    Schema for connection settings only (used by Reconfigure).
+
+    URL and SSL verification are the only fields that affect connectivity.
+    All optional tuning belongs in the Options flow.
+    """
+    return vol.Schema(
+        {
+            vol.Required(CONF_URL, default=url): str,
+            vol.Optional(CONF_VERIFY_SSL, default=verify_ssl): bool,
+        }
+    )
+
+
+def _build_setup_schema(
+    url: str = DEFAULT_URL,
+    verify_ssl: bool = DEFAULT_VERIFY_SSL,
+    scan_interval: int = DEFAULT_SCAN_INTERVAL_MINUTES,
+    show_archived: bool = DEFAULT_SHOW_ARCHIVED,
+    enable_critical_attrs: bool = DEFAULT_ENABLE_CRITICAL_ATTRS,
+    enable_all_attrs: bool = DEFAULT_ENABLE_ALL_ATTRS,
+    enable_raw_values: bool = DEFAULT_ENABLE_RAW_VALUES,
+) -> vol.Schema:
+    """
+    Schema for the initial setup step.
+
+    Shows connection settings and all options together so the user can
+    configure everything in one place when first adding the integration.
+    The same options are subsequently editable via the Configure (gear) screen.
+    """
+    return vol.Schema(
+        {
+            vol.Required(CONF_URL, default=url): str,
+            vol.Optional(CONF_VERIFY_SSL, default=verify_ssl): bool,
+            vol.Optional(CONF_SCAN_INTERVAL, default=scan_interval): vol.All(
+                vol.Coerce(int), vol.Range(min=1)
+            ),
+            vol.Optional(CONF_SHOW_ARCHIVED, default=show_archived): bool,
+            vol.Optional(
+                CONF_ENABLE_CRITICAL_ATTRS, default=enable_critical_attrs
+            ): bool,
+            vol.Optional(CONF_ENABLE_ALL_ATTRS, default=enable_all_attrs): bool,
+            vol.Optional(CONF_ENABLE_RAW_VALUES, default=enable_raw_values): bool,
+        }
+    )
 
 
 class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """
-    Manages the configuration flow for the Scrutiny integration.
+    """Config flow handler for the Scrutiny integration."""
 
-    This class handles the steps involved when a user adds or reconfigures
-    the integration through the Home Assistant UI.
-    """
+    VERSION = 2
 
-    VERSION = (
-        2  # Version of the config flow. Increment if the schema or stored data changes.
-    )
-    # Connection class is not used here as we are doing local polling.
-    # CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL  # noqa: ERA001
-
-    async def _test_connection(self, host: str, port: int) -> None:
+    async def _test_connection(self, url: str, verify_ssl: bool) -> None:
         """
-        Test the connection to the Scrutiny API with the provided details.
+        Verify connectivity to the Scrutiny API.
 
-        This helper method attempts to fetch summary data from the Scrutiny API
-        to validate that the provided host and port
-          are correct and the API is responsive.
-
-        Args:
-            host: The Scrutiny server host.
-            port: The Scrutiny server port.
-
-        Raises:
-            ScrutinyApiConnectionError: If connection to the Scrutiny server fails
-            (e.g., timeout, host not found).
-            ScrutinyApiResponseError: If the Scrutiny API responds with an error or
-            unexpected data format.
-            ScrutinyApiAuthError: If authentication fails (though Scrutiny API
-            doesn't typically use auth).
-            Other exceptions from ScrutinyApiClient.async_get_summary() might
-            also propagate.
-
+        Raises a ``ScrutinyApi*`` exception on failure so callers can map it to
+        a user-visible error key.
         """
-        # Get Home Assistant's shared aiohttp client session.
-        session = async_get_clientsession(self.hass)
-        # Create an instance of our API client.
-        client = ScrutinyApiClient(host=host, port=port, session=session)
-        # Attempt to fetch summary data. If this call succeeds,
-        #  the connection is considered valid.
-        # If it fails, it will raise one of the ScrutinyApi*
-        #  exceptions, which will be caught
-        # by the calling method (async_step_user).
+        session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
+        client = ScrutinyApiClient(base_url=url, session=session)
         await client.async_get_summary()
+
+    async def _validate_input(self, url: str, verify_ssl: bool) -> dict[str, str]:
+        """Run a test connection and return an errors dict (empty on success)."""
+        errors: dict[str, str] = {}
+        try:
+            LOGGER.debug("Testing connection to Scrutiny at %s", url)
+            await self._test_connection(url, verify_ssl)
+        except ScrutinyApiConnectionError:
+            LOGGER.warning("Connection to Scrutiny failed at %s", url)
+            errors["base"] = "cannot_connect"
+        except ScrutinyApiResponseError:
+            LOGGER.warning("Invalid API response from Scrutiny at %s", url)
+            errors["base"] = "invalid_api_response"
+        except ScrutinyApiAuthError:
+            LOGGER.warning("Authentication error with Scrutiny at %s", url)
+            errors["base"] = "invalid_auth"
+        except Exception:  # pylint: disable=broad-except  # noqa: BLE001
+            LOGGER.exception("Unexpected error while connecting to Scrutiny at %s", url)
+            errors["base"] = "unknown"
+        return errors
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """
-        Handle the initial step of the user-initiated config flow.
+        Handle the initial setup step.
 
-        This step prompts the user for connection details (host, port),
-        validates them by attempting a connection, and then creates a
-        config entry if successful.
-
-        Args:
-            user_input: A dictionary containing user-provided data from the form.
-                        It's None if the form is being shown for the first time.
-
-        Returns:
-            A ConfigFlowResult indicating the next step or outcome:
-            - self.async_show_form(...): If the form needs to be shown
-              (or re-shown due to errors).
-            - self.async_create_entry(...): If the input is valid and
-              the entry should be created.
-            - self.async_abort(...): If the setup should be aborted
-              (e.g., already configured).
-
+        Shows connection settings alongside all tuning options so the user
+        can configure everything in one step.  Connection settings go to
+        ``data``; options go to ``options`` so they remain editable via
+        the Configure (gear) screen without reconfiguring the connection.
         """
-        errors: dict[
-            str, str
-        ] = {}  # Dictionary to store validation errors to display in the UI.
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            # User has submitted the form, so process the input.
-            host = user_input[CONF_HOST]
-            # Get the port, defaulting to DEFAULT_PORT if not provided
-            #  or if schema handling is bypassed.
-            # The schema already applies the default, but this is a safeguard.
-            port = user_input.get(CONF_PORT, DEFAULT_PORT)
+            url: str = user_input[CONF_URL].rstrip("/")
+            verify_ssl: bool = bool(user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
-            scan_interval_minutes = user_input.get(
-                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
-            )
-
-            # Create a unique ID for this configuration entry
-            #  to prevent duplicate entries
-            # for the same Scrutiny instance.
-            unique_id = f"{host}:{port}"
+            unique_id = url
             await self.async_set_unique_id(unique_id)
-            # Abort if a config entry with this unique_id already exists.
-            # This prevents users from adding the same Scrutiny server multiple times.
             self._abort_if_unique_id_configured()
 
-            try:
-                # Attempt to connect to Scrutiny with the provided details.
-                # The _test_connection method will raise an exception if it fails.
-                LOGGER.debug("Testing connection to Scrutiny at %s:%s", host, port)
-                await self._test_connection(host, port)
-            except ScrutinyApiConnectionError:
-                LOGGER.warning("Connection to Scrutiny failed at %s:%s", host, port)
-                # "cannot_connect" is a standard error key defined in Home Assistant
-                # or can be a custom key defined in strings.json.
-                errors["base"] = "cannot_connect"
-            except ScrutinyApiResponseError:
-                LOGGER.warning(
-                    "Invalid API response from Scrutiny at %s:%s", host, port
-                )
-                # "invalid_api_response" should be a key in strings.json
-                #  for a user-friendly message.
-                errors["base"] = "invalid_api_response"
-            except ScrutinyApiAuthError:
-                # This error is unlikely with the current Scrutiny
-                #  API (which is unauthenticated)  # noqa: ERA001
-                # but included for robustness or future API changes.
-                LOGGER.warning(
-                    "Authentication error with Scrutiny at %s:%s (unexpected)",
-                    host,
-                    port,
-                )
-                # "invalid_auth" is a standard error key.
-                errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except # noqa: BLE001
-                # Catch any other unexpected errors during the connection test.
-                LOGGER.exception(
-                    (
-                        "An unexpected error occurred while "
-                        "trying to connect to Scrutiny at %s:%s"
-                    ),
-                    host,
-                    port,
-                )
-                # "unknown" is a standard error key for generic failures.
-                errors["base"] = "unknown"
-            else:
-                # If no exceptions were raised, the connection
-                #  and API response are valid.
-                LOGGER.info("Successfully connected to Scrutiny at %s:%s", host, port)
-                # Create the config entry. The title will be
-                #  shown in the integrations list.
-                # The data dictionary is stored in the config
-                #  entry and used during setup.
+            errors = await self._validate_input(url, verify_ssl)
+            if not errors:
+                LOGGER.info("Successfully connected to Scrutiny at %s", url)
                 return self.async_create_entry(
-                    title=f"Scrutiny ({host}:{port})",  # User-visible title for entry.
-                    data={  # Data to be stored in the config entry.
-                        CONF_HOST: host,
-                        CONF_PORT: port,
-                        CONF_SCAN_INTERVAL: scan_interval_minutes,
+                    title=f"Scrutiny ({url})",
+                    data={
+                        CONF_URL: url,
+                        CONF_VERIFY_SSL: verify_ssl,
+                    },
+                    options={
+                        CONF_SCAN_INTERVAL: user_input.get(
+                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
+                        ),
+                        CONF_SHOW_ARCHIVED: bool(
+                            user_input.get(CONF_SHOW_ARCHIVED, DEFAULT_SHOW_ARCHIVED)
+                        ),
+                        CONF_ENABLE_CRITICAL_ATTRS: bool(
+                            user_input.get(
+                                CONF_ENABLE_CRITICAL_ATTRS,
+                                DEFAULT_ENABLE_CRITICAL_ATTRS,
+                            )
+                        ),
+                        CONF_ENABLE_ALL_ATTRS: bool(
+                            user_input.get(
+                                CONF_ENABLE_ALL_ATTRS, DEFAULT_ENABLE_ALL_ATTRS
+                            )
+                        ),
+                        CONF_ENABLE_RAW_VALUES: bool(
+                            user_input.get(
+                                CONF_ENABLE_RAW_VALUES, DEFAULT_ENABLE_RAW_VALUES
+                            )
+                        ),
                     },
                 )
 
-        # If user_input is None (first time the form is shown) or if there were errors
-        # during validation, show the configuration form to the user again.
-        # `errors` will be passed to the form to display error messages.
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=_build_setup_schema(),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """
+        Allow changing host or port of an existing entry.
+
+        Useful when the Scrutiny server moves to a different address.
+        All optional tuning (scan interval, entity level, archived disks)
+        is handled exclusively in the Options flow (gear icon).
+        """
+        entry = self._get_reconfigure_entry()
+
+        current_url: str = entry.data.get(CONF_URL, DEFAULT_URL)
+        current_verify_ssl: bool = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            url: str = user_input[CONF_URL].rstrip("/")
+            verify_ssl: bool = bool(user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
+
+            errors = await self._validate_input(url, verify_ssl)
+            if not errors:
+                LOGGER.info("Scrutiny entry reconfigured to %s", url)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    title=f"Scrutiny ({url})",
+                    data={
+                        CONF_URL: url,
+                        CONF_VERIFY_SSL: verify_ssl,
+                    },
+                    reason="reconfigure_successful",
+                )
+
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=_build_connection_schema(url, verify_ssl),
+                errors=errors,
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_connection_schema(current_url, current_verify_ssl),
+            errors=errors,
         )
 
     @staticmethod
@@ -220,5 +234,5 @@ class ScrutinyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> ScrutinyOptionsFlowHandler:
-        """Get the options flow for this handler."""
-        return ScrutinyOptionsFlowHandler(config_entry)
+        """Return the options flow handler for this config entry."""
+        return ScrutinyOptionsFlowHandler()

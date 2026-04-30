@@ -2,14 +2,19 @@
   "domain": "scrutiny",
   "name": "Scrutiny",
   "codeowners": [
-    "@vitals5"
+    "@raetha"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/vitals5/ha_scrutiny",
+  "documentation": "https://github.com/raetha/ha-scrutiny",
+  "integration_type": "hub",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/vitals5/ha_scrutiny/issues",
-  "requirements": [
-    "aiohttp>=3.9.0"
+  "issue_tracker": "https://github.com/raetha/ha-scrutiny/issues",
+  "loggers": [
+    "custom_components.scrutiny"
   ],
-  "version": "0.3.3"
+  "quality_scale": "gold",
+  "requirements": [
+    "aiohttp>=3.11.0"
+  ],
+  "version": "1.1.0"
 }

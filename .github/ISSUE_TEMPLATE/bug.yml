@@ -1,54 +1,84 @@
----
-name: "Bug report"
-description: "Report a bug with the integration"
+name: Bug Report
+description: Report a problem with the Scrutiny integration.
+labels: ["bug"]
 body:
-- type: markdown
-  attributes:
-    value: Before you open a new issue, search through the existing issues to see if others have had the same problem.
-- type: textarea
-  attributes:
-    label: "System Health details"
-    description: "Paste the data from the System Health card in Home Assistant (https://www.home-assistant.io/more-info/system-health#github-issues)"
-  validations:
-    required: true
-- type: checkboxes
-  attributes:
-    label: Checklist
-    options:
-      - label: I have enabled debug logging for my installation.
-        required: true
-      - label: I have filled out the issue template to the best of my ability.
-        required: true
-      - label: This issue only contains 1 issue (if you have multiple issues, open one issue for each issue).
-        required: true
-      - label: This issue is not a duplicate issue of any [previous issues](https://github.com/vitals5/ha_scrutiny/issues?q=is%3Aissue+label%3A%22Bug%22+)..
-        required: true
-- type: textarea
-  attributes:
-    label: "Describe the issue"
-    description: "A clear and concise description of what the issue is."
-  validations:
-    required: true
-- type: textarea
-  attributes:
-    label: Reproduction steps
-    description: "Without steps to reproduce, it will be hard to fix. It is very important that you fill out this part. Issues without it will be closed."
-    value: |
-      1.
-      2.
-      3.
-      ...
-  validations:
-    required: true
-- type: textarea
-  attributes:
-    label: "Debug logs"
-    description: "To enable debug logs check this https://www.home-assistant.io/integrations/logger/, this **needs** to include _everything_ from startup of Home Assistant to the point where you encounter the issue."
-    render: text
-  validations:
-    required: true
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below so we can reproduce and fix the issue quickly.
 
-- type: textarea
-  attributes:
-    label: "Diagnostics dump"
-    description: "Drag the diagnostics dump file here. (see https://www.home-assistant.io/integrations/diagnostics/ for info)"
+  - type: textarea
+    id: describe
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behaviour.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "e.g. 2026.3.2"
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "e.g. 1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: scrutiny_version
+    attributes:
+      label: Scrutiny server version
+      placeholder: "e.g. v0.8.1"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Paste any relevant log lines here. Enable debug logging for the integration via
+        `Configuration → Logs` or by adding the following to `configuration.yaml`:
+        ```yaml
+        logger:
+          logs:
+            custom_components.scrutiny: debug
+        ```
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here.
+    validations:
+      required: false

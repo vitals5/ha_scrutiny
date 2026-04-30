@@ -1,0 +1,53 @@
+{
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "default": "mdi:thermometer"
+      },
+      "power_on_hours": {
+        "default": "mdi:timer-sand"
+      },
+      "power_cycle_count": {
+        "default": "mdi:autorenew"
+      },
+      "overall_device_status": {
+        "default": "mdi:harddisk",
+        "state": {
+          "passed": "mdi:harddisk",
+          "failed_smart": "mdi:harddisk-remove",
+          "failed_scrutiny": "mdi:harddisk-remove",
+          "unknown": "mdi:harddisk-remove"
+        }
+      },
+      "capacity": {
+        "default": "mdi:database"
+      },
+      "smart_test_result": {
+        "default": "mdi:shield-check-outline",
+        "state": {
+          "passed": "mdi:shield-check-outline",
+          "failed_smart": "mdi:shield-alert-outline",
+          "warning_scrutiny": "mdi:shield-half-full",
+          "failed_scrutiny": "mdi:shield-alert-outline",
+          "unknown": "mdi:shield-off-outline"
+        }
+      },
+      "smart_attribute": {
+        "default": "mdi:chip",
+        "state": {
+          "passed": "mdi:chip",
+          "failed_smart": "mdi:alert-circle",
+          "warning_scrutiny": "mdi:alert-circle-outline",
+          "failed_scrutiny": "mdi:alert-circle",
+          "unknown": "mdi:help-circle-outline"
+        }
+      },
+      "last_smart_update": {
+        "default": "mdi:clock-check-outline"
+      },
+      "smart_attribute_raw": {
+        "default": "mdi:counter"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Test and lint dependencies for the Scrutiny integration.
+#
+# Requires Python 3.14+ (matching Home Assistant 2026.3+).
+#
+# The unittest suite uses only stdlib + ha_stubs — no HA installation needed.
+# Ruff is the only external dependency, used for linting and format checking.
+#
+# To run everything (lint + tests):
+#   python3 tests/run_tests.py          # direct; warns and skips lint if ruff missing
+#   bash scripts/run_tests.sh           # via venv; installs ruff automatically
+#
+# To install manually:
+#   pip install ruff
+
+ruff

@@ -1,8 +1,5 @@
 """Constants for the Scrutiny Home Assistant integration."""
 
-from __future__ import annotations
-
-from datetime import timedelta
 from logging import Logger, getLogger
 
 # Logger instance for the integration.
@@ -13,31 +10,40 @@ DOMAIN: str = "scrutiny"
 # User-visible name of the integration. Also used as default manufacturer for devices.
 NAME: str = "Scrutiny"
 # Version of the integration.
-VERSION: str = "0.3.3"
+VERSION: str = "1.1.0"
 
 # Configuration keys used in config_flow.py and __init__.py.
-CONF_HOST: str = "host"  # Key for the Scrutiny server host.
-CONF_PORT: str = "port"  # Key for the Scrutiny server port.
+CONF_URL: str = "url"  # Full base URL of the Scrutiny server, e.g. http://host:8080
 CONF_SCAN_INTERVAL: str = "scan_interval"  # Key for the poll interval for data updates.
+CONF_SHOW_ARCHIVED: str = "show_archived"  # Whether to include archived disks.
+CONF_ENABLE_CRITICAL_ATTRS: str = (
+    "enable_critical_attrs"  # Include critical SMART attribute sensors.
+)
+CONF_ENABLE_ALL_ATTRS: str = "enable_all_attrs"  # Include all SMART attribute sensors.
+CONF_ENABLE_RAW_VALUES: str = (
+    "enable_raw_values"  # Include raw value sensors for selected attribute tier.
+)
+CONF_VERIFY_SSL: str = "verify_ssl"  # Whether to verify the server's SSL certificate.
+
 # Default values for configuration.
-DEFAULT_PORT: int = 8080  # Default port for the Scrutiny API.
+DEFAULT_URL: str = "http://scrutiny.local:8080"  # Example default URL.
+DEFAULT_SHOW_ARCHIVED: bool = False
+DEFAULT_ENABLE_CRITICAL_ATTRS: bool = False
+DEFAULT_ENABLE_ALL_ATTRS: bool = False
+DEFAULT_ENABLE_RAW_VALUES: bool = False  # Raw value numeric sensors off by default.
 DEFAULT_SCAN_INTERVAL_MINUTES: int = 60  # Default polling interval in minutes.
-DEFAULT_SCAN_INTERVAL: timedelta = timedelta(
-    minutes=DEFAULT_SCAN_INTERVAL_MINUTES
-)  # Default interval for polling data.
+DEFAULT_VERIFY_SSL: bool = True  # Verify SSL certificates by default.
 
 # --- Keys for navigating the aggregated data structure in the coordinator ---
 # These keys are used internally by the coordinator to structure the data fetched
 # from the Scrutiny API and by sensor.py to access specific parts of this data.
-# For example, coordinator.data[wwn][KEY_SUMMARY_DEVICE] would access
-# the device summary for a disk with a given WWN.
+# For example, coordinator.data[disk_id][KEY_SUMMARY_DEVICE] would access
+# the device summary for a disk with a given Scrutiny UUID.
 
 # Key for the 'device' part of the summary data for a disk.
 KEY_SUMMARY_DEVICE: str = "summary_device"
 # Key for the 'smart' part of the summary data for a disk.
 KEY_SUMMARY_SMART: str = "summary_smart"
-# Key for the 'device' part of the detailed data for a disk.
-KEY_DETAILS_DEVICE: str = "details_device"
 # Key for the latest SMART snapshot from the detailed data for a disk.
 KEY_DETAILS_SMART_LATEST: str = "details_smart_latest"
 # Key for the metadata of SMART attributes from the detailed data for a disk.
@@ -50,14 +56,19 @@ KEY_DETAILS_METADATA: str = "details_smart_attributes_metadata"
 
 # Keys for general disk information
 #  (often present in both summary and details API responses).
-# ATTR_WWN is the World Wide Name, used as the primary identifier for disks.
-# It's also a field within the device object from the API.
-ATTR_WWN: str = "wwn"  # World Wide Name of the disk.
+# ATTR_WWN is the JSON field name for the World Wide Name within the device
+# data payload returned by the API. WWN is still present as a field in 0.9.x
+# but is no longer used as the primary disk routing key — Scrutiny 0.9.0+
+# uses a UUIDv5 (scrutiny_uuid) as the top-level summary key and API route.
+ATTR_WWN: str = "wwn"  # World Wide Name field within the device payload.
 ATTR_DEVICE_NAME: str = "device_name"  # e.g., /dev/sda
 ATTR_MODEL_NAME: str = "model_name"  # e.g., "Samsung SSD 860 EVO"
 ATTR_FIRMWARE: str = "firmware"  # Firmware version of the disk.
 ATTR_CAPACITY: str = "capacity"  # Disk capacity in bytes.
 ATTR_SERIAL_NUMBER: str = "serial_number"  # Serial number of the disk.
+ATTR_ARCHIVED: str = "archived"  # Whether the disk has been archived in Scrutiny.
+# Timestamp of the last SMART data update recorded by Scrutiny for this disk.
+ATTR_UPDATED_AT: str = "UpdatedAt"
 
 # Keys specifically from the '/api/summary' -> 'device' object of a disk.
 ATTR_SUMMARY_DEVICE_STATUS: str = (
@@ -72,7 +83,7 @@ ATTR_POWER_CYCLE_COUNT: str = (
     "power_cycle_count"  # Number of power cycles. (From details_smart_latest)
 )
 
-# Keys related to the structure of the '/api/device/{wwn}/details' API response.
+# Keys related to the '/api/device/{scrutiny_uuid}/details' API response structure.
 ATTR_DEVICE: str = "device"  # The 'device' object within the details payload.
 ATTR_SMART_RESULTS: str = (
     "smart_results"  # Array of SMART snapshots in the details payload.
@@ -124,25 +135,21 @@ ATTR_DESCRIPTION: str = "description"  # Text description of the SMART attribute
 
 # Mapping for 'device_status' from the '/api/summary' endpoint.
 SCRUTINY_DEVICE_SUMMARY_STATUS_MAP: dict[int, str] = {
-    0: "Passed",  # Device is considered healthy.
-    1: "Failed (S.M.A.R.T.)",  # Device failed due to SMART attributes.
-    2: "Failed (Scrutiny)",  # Device failed based on Scrutiny's own checks.
+    0: "Passed",
+    1: "Failed (SMART)",  # S.M.A.R.T. failure — slugifies to 'failed_smart'
+    2: "Failed (Scrutiny)",  # Scrutiny threshold failure
 }
-SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN: str = (
-    "Unknown Summary Status"  # Fallback for unknown status codes.
-)
+SCRUTINY_DEVICE_SUMMARY_STATUS_UNKNOWN: str = "Unknown"
 
 # Mapping for the 'status' of individual SMART attributes
 # from '/api/device/.../details' -> smart_results[0].attrs[id].status.
 ATTR_SMART_STATUS_MAP: dict[int, str] = {
-    0: "Passed",  # Attribute is within normal parameters.
-    1: "Failed (S.M.A.R.T.)",  # Attribute has failed according to S.M.A.R.T.
-    2: "Warning (Scrutiny)",  # Scrutiny has issued a warning for this attribute.
-    4: "Failed (Scrutiny)",  # Scrutiny has marked this attribute as failed.
+    0: "Passed",
+    1: "Failed (SMART)",  # S.M.A.R.T. failure
+    2: "Warning (Scrutiny)",
+    4: "Failed (Scrutiny)",
 }
-ATTR_SMART_STATUS_UNKNOWN: str = (
-    "Unknown Attribute Status"  # Fallback for unknown attribute status codes.
-)
+ATTR_SMART_STATUS_UNKNOWN: str = "Unknown"
 
 
 # Platforms to set up for this integration (e.g., "sensor", "binary_sensor").

@@ -5,19 +5,71 @@
                 "title": "Connect to Scrutiny",
                 "description": "Enter the connection details for your Scrutiny instance.",
                 "data": {
-                    "host": "Hostname or IP address",
-                    "port": "Port number",
-                    "scan_interval": "Scan Interval (minutes)"
+                    "url": "Scrutiny URL",
+                    "verify_ssl": "Verify SSL certificate",
+                    "scan_interval": "Scan Interval (minutes)",
+                    "show_archived": "Show archived disks",
+                    "enable_critical_attrs": "Include critical SMART attribute sensors",
+                    "enable_all_attrs": "Include all SMART attribute sensors",
+                    "enable_raw_values": "Enable raw value sensors for selected SMART attributes"
                 },
                 "data_description": {
-                    "host": "The hostname or IP address of your Scrutiny server.",
-                    "port": "The port number Scrutiny is running on (default: 8080).",
-                    "scan_interval": "How often to poll Scrutiny for updates, in minutes. Minimum 1."
+                    "url": "Full base URL of your Scrutiny instance, including protocol and port.",
+                    "verify_ssl": "Uncheck only if your Scrutiny instance uses a self-signed SSL certificate.",
+                    "scan_interval": "How often to poll Scrutiny for updates, in minutes. Minimum 1.",
+                    "show_archived": "When enabled, disks archived in Scrutiny are shown in Home Assistant, labelled [Archived]. When disabled, archived disks are hidden and their HA devices are removed automatically.",
+                    "enable_critical_attrs": "Create sensor entities for SMART attributes that Scrutiny marks as critical (e.g. Reallocated Sectors Count). Matches the attributes shown when you drill into a drive in the Scrutiny UI.",
+                    "enable_all_attrs": "Create sensor entities for every SMART attribute reported by the drive, including informational ones. Overrides the critical-only setting and may add many sensors per drive.",
+                    "enable_raw_values": "Create additional numeric sensors for the raw integer value of each tracked SMART attribute. Enables Home Assistant to record history and long-term statistics, making gradual degradation trends visible over time. Only applies to attributes already enabled via the critical or all attribute options above."
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure Scrutiny",
+                "description": "Update the connection details for your Scrutiny instance.",
+                "data": {
+                    "url": "Scrutiny URL",
+                    "verify_ssl": "Verify SSL certificate"
+                },
+                "data_description": {
+                    "url": "Full base URL of your Scrutiny instance, including protocol and port.",
+                    "verify_ssl": "Uncheck only if your Scrutiny instance uses a self-signed SSL certificate."
                 }
             }
         },
         "error": {
-            "invalid_api_response": "The Scrutiny API responded, but the data was not in the expected format or indicated an error."
+            "cannot_connect": "Unable to connect to Scrutiny. Check the host and port.",
+            "invalid_auth": "Authentication failed.",
+            "invalid_api_response": "The Scrutiny API responded, but the data was not in the expected format or indicated an error.",
+            "unknown": "An unexpected error occurred."
+        },
+        "abort": {
+            "already_configured": "This Scrutiny instance is already configured.",
+            "reconfigure_successful": "Scrutiny has been reconfigured successfully."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Scrutiny Options",
+                "data": {
+                    "scan_interval": "Scan Interval (minutes)",
+                    "show_archived": "Show archived disks",
+                    "enable_critical_attrs": "Include critical SMART attribute sensors",
+                    "enable_all_attrs": "Include all SMART attribute sensors",
+                    "enable_raw_values": "Enable raw value sensors for selected SMART attributes"
+                },
+                "data_description": {
+                    "scan_interval": "How often to poll Scrutiny for updates, in minutes. Minimum 1.",
+                    "show_archived": "When enabled, disks that have been archived in Scrutiny are still shown as HA devices, labelled [Archived]. When disabled, archived disks are hidden and their HA devices are removed automatically.",
+                    "enable_critical_attrs": "Create sensor entities for SMART attributes marked as critical by Scrutiny (e.g. Reallocated Sectors Count). These match the attributes shown when you drill into a drive in the Scrutiny UI.",
+                    "enable_all_attrs": "Create sensor entities for every SMART attribute reported by the drive, including informational ones. Enabling this overrides the critical-only setting and may add many sensors per drive.",
+                    "enable_raw_values": "Create additional numeric sensors for the raw integer value of each tracked SMART attribute. Enables Home Assistant to record history and long-term statistics, making gradual degradation trends visible over time. Only applies to attributes already enabled via the critical or all attribute options above."
+                }
+            }
+        },
+        "error": {
+            "invalid_scan_interval": "Scan interval must be a positive number greater than or equal to 1.",
+            "unknown_options_error": "An unknown error occurred while saving options."
         }
     },
     "entity": {
@@ -26,14 +78,46 @@
                 "name": "Temperature"
             },
             "power_on_hours": {
-                "name": "Power On Hours"
+                "name": "Power On Time"
             },
-            "device_status": {
-                "name": "Status"
+            "power_cycle_count": {
+                "name": "Power Cycle Count"
+            },
+            "overall_device_status": {
+                "name": "Overall Status",
+                "state": {
+                    "passed": "Passed",
+                    "failed_smart": "Failed (SMART)",
+                    "failed_scrutiny": "Failed (Scrutiny)",
+                    "unknown": "Unknown"
+                }
             },
             "capacity": {
                 "name": "Capacity"
-            }
+            },
+            "smart_test_result": {
+                "name": "SMART Test Result",
+                "state": {
+                    "passed": "Passed",
+                    "failed_smart": "Failed (SMART)",
+                    "warning_scrutiny": "Warning (Scrutiny)",
+                    "failed_scrutiny": "Failed (Scrutiny)",
+                    "unknown": "Unknown"
+                }
+            },
+            "smart_attribute": {
+                "state": {
+                    "passed": "Passed",
+                    "failed_smart": "Failed (SMART)",
+                    "warning_scrutiny": "Warning (Scrutiny)",
+                    "failed_scrutiny": "Failed (Scrutiny)",
+                    "unknown": "Unknown"
+                }
+            },
+            "last_smart_update": {
+                "name": "Last SMART Update"
+            },
+            "smart_attribute_raw": {}
         }
     }
 }

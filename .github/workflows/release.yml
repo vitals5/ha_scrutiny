@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(jq -r '.version' custom_components/scrutiny/manifest.json)
+          if [ "$TAG" != "$MANIFEST_VERSION" ]; then
+            echo "ERROR: Tag $TAG does not match manifest version $MANIFEST_VERSION"
+            exit 1
+          fi
+          echo "Version check passed: $TAG"
+
+      - name: Build release ZIP
+        run: |
+          mkdir -p release
+          cd custom_components
+          zip -r ../release/scrutiny.zip scrutiny \
+            --exclude "scrutiny/__pycache__/*" \
+            --exclude "scrutiny/*.pyc"
+
+      - name: Extract changelog for this release
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk "/^## $VERSION/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="See CHANGELOG.md for details."
+          fi
+          echo "$NOTES" > /tmp/release_notes.md
+          echo "notes_file=/tmp/release_notes.md" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: "Scrutiny ${{ github.ref_name }}"
+          body_path: ${{ steps.changelog.outputs.notes_file }}
+          files: release/scrutiny.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
