@@ -1,6 +1,24 @@
 # Changelog
 
-## 1.1.0 — 2026-04-30
+## [1.1.1] — 2026-04-30
+
+### Repository
+
+- Transferred to [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny) as the
+  primary upstream repository.
+- `manifest.json` — `codeowners` updated to `["@vitals5", "@raetha"]`; `documentation`
+  and `issue_tracker` URLs updated to the upstream repository.
+- `LICENSE` — added `Copyright (c) 2024 vitals5` to correctly reflect the original
+  author alongside the fork author.
+- `README.md` — HACS badge updated from "Custom" to "Default" (the integration is in
+  the default HACS catalog); install instructions simplified accordingly; banner image
+  restored; attribution and all repository URLs updated to upstream.
+- `CONTRIBUTING.md` — repository URL updated to upstream.
+- `CHANGELOG.md` — compare links updated to upstream repository.
+- `.github/FUNDING.yml` — removed (personal funding link, not appropriate in a shared
+  upstream repository).
+
+## [1.1.0] — 2026-04-30
 
 ### Scrutiny 0.9.0 compatibility
 
@@ -70,7 +88,7 @@ Historical entity data will be reset, but no manual cleanup is required.
 - **CI** — matrix testing removed (Python 3.14 only); `ruff format --check` added to
   lint job.
 
-## 1.0.1 — 2026-04-18
+## [1.0.1] — 2026-04-18
 
 ### Bug fixes
 
@@ -91,9 +109,9 @@ Historical entity data will be reset, but no manual cleanup is required.
 - **GitHub Actions deprecation warnings** — updated `actions/checkout` v4 → v6 and
   `actions/setup-python` v5 → v6 (both now run on Node.js 24).
 
-## 1.0.0 — 2026-04-15
+## [1.0.0] — 2026-04-15
 
-Initial public release as a fork of [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny).
+Initial public release. Originally developed as a fork of [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny), this is now the primary upstream repository.
 
 This release is a substantial rewrite addressing every open issue and pending PR on the
 upstream repository at the time of the fork, plus a full Home Assistant quality scale
@@ -137,3 +155,10 @@ compliance pass.
 All Bronze, Silver, Gold, and Platinum rules satisfied. `quality_scale` set to `gold`
 in `manifest.json` (the maximum accepted value; Platinum is assessed separately by the
 HA core team).
+
+---
+
+[1.1.1]: https://github.com/vitals5/ha_scrutiny/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/vitals5/ha_scrutiny/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/vitals5/ha_scrutiny/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/vitals5/ha_scrutiny/releases/tag/v1.0.0

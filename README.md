@@ -1,5 +1,7 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub release](https://img.shields.io/github/v/release/raetha/ha-scrutiny?style=plastic)](https://github.com/raetha/ha-scrutiny/releases)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-teal.svg)](https://github.com/hacs/integration)
+[![GitHub release](https://img.shields.io/github/v/release/vitals5/ha_scrutiny?style=plastic)](https://github.com/vitals5/ha_scrutiny/releases)
+
+![Scrutiny Banner](brands/ha_scrutiny_banner.png)
 
 # Scrutiny — Home Assistant Integration
 
@@ -24,17 +26,17 @@ In addition, sensor entities for individual SMART attributes can be enabled thro
 
 ### Device identity
 
-Devices are named after their **model and serial number** (e.g. `WD Red Plus 4TB (WD40EFZX-12345)`) so you can cross-reference them against TrueNAS, ZFS, or any other tool that identifies disks by serial number. The underlying unique identifier used by Home Assistant is the **WWN** (World Wide Name), which is the IEEE-assigned globally unique identifier that remains stable across reboots and drive path changes. Each disk device includes a **Visit** link that opens its page directly in the Scrutiny UI.
+Devices are named after their **model and serial number** (e.g. `WD Red Plus 4TB (WD40EFZX-12345)`) so you can cross-reference them against TrueNAS, ZFS, or any other tool that identifies disks by serial number. The underlying unique identifier used by Home Assistant is the **Scrutiny disk ID** — a UUIDv5 on Scrutiny ≥ 0.9.0, or the WWN hex string on older releases. Either way it remains stable across reboots and drive path changes. Each disk device includes a **Visit** link that opens its page directly in the Scrutiny UI.
 
 ### Device path (current `/dev/sdX`)
 
-The current device path (e.g. `/dev/sda`) is exposed as the `device_name` attribute on every sensor entity for that disk. You can see it in the entity's attribute panel in the Home Assistant UI. Because Linux device paths are not guaranteed to be stable across reboots, the path shown may not always reflect the current system state — it reflects whatever path Scrutiny last reported. The drive's stable identity in Home Assistant is always the WWN.
+The current device path (e.g. `/dev/sda`) is exposed as the `device_name` attribute on every sensor entity for that disk. You can see it in the entity's attribute panel in the Home Assistant UI. Because Linux device paths are not guaranteed to be stable across reboots, the path shown may not always reflect the current system state — it reflects whatever path Scrutiny last reported. The drive's stable identity in Home Assistant is always the Scrutiny disk ID.
 
 ---
 
 ## Requirements
 
-- Home Assistant 2025.12 or newer
+- Home Assistant 2026.3 or newer
 - A reachable [Scrutiny](https://github.com/AnalogJ/scrutiny) instance (self-hosted, Docker, or TrueNAS App)
 - Network access from Home Assistant to the Scrutiny web interface
 
@@ -44,19 +46,16 @@ The current device path (e.g. `/dev/sda`) is exposed as the `device_name` attrib
 
 ### HACS (Recommended)
 
-This integration is not yet in the default HACS catalog. You can add it as a custom repository:
+This integration is available in the default HACS catalog.
 
 1. Open HACS in Home Assistant
 2. Go to **Integrations**
-3. Click the **⋮** menu → **Custom repositories**
-4. Enter the repository URL: `https://github.com/raetha/ha-scrutiny`
-5. Set category to **Integration** and click **Add**
-6. Find **Scrutiny** in the integration list and install it
-7. Restart Home Assistant
+3. Search for **Scrutiny** and install it
+4. Restart Home Assistant
 
-Or click the button below to add the repository directly:
+Or click the button below to install directly:
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=raetha&repository=ha-scrutiny&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=vitals5&repository=ha_scrutiny&category=integration)
 
 ### Manual
 
@@ -186,7 +185,7 @@ entities:
 Home Assistant polls the Scrutiny API on the configured scan interval. On each poll:
 
 1. The `/api/summary` endpoint is called to get current status and basic metrics for all disks.
-2. The `/api/device/{wwn}/details` endpoint is called **concurrently** for every disk to retrieve the latest SMART snapshot and attribute metadata.
+2. The `/api/device/{disk_id}/details` endpoint is called **concurrently** for every disk to retrieve the latest SMART snapshot and attribute metadata.
 
 If the Scrutiny server is temporarily unreachable, sensors are marked unavailable and Home Assistant logs a single warning. Polling resumes automatically at the next interval — no restart is required.
 
@@ -236,7 +235,7 @@ All devices and entities created by the integration will be removed automaticall
 
 ## Attribution
 
-This integration was forked from [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny) by vitals5, and subsequently developed by **[@raetha](https://github.com/raetha)** with design assistance and code generation by **[Claude](https://claude.ai)** (Anthropic).
+Originally created by **[@vitals5](https://github.com/vitals5)**. Substantially developed and maintained by **[@raetha](https://github.com/raetha)**, with design assistance and code generation by **[Claude](https://claude.ai)** (Anthropic).
 
 For the Scrutiny application itself (collector, web server, API), see [AnalogJ/scrutiny](https://github.com/AnalogJ/scrutiny).
 
@@ -244,7 +243,7 @@ For the Scrutiny application itself (collector, web server, API), see [AnalogJ/s
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/raetha/ha-scrutiny](https://github.com/raetha/ha-scrutiny).
+Issues and pull requests are welcome at [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny).
 
 ---
 

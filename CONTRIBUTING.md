@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions are welcome via pull requests at [github.com/raetha/ha-scrutiny](https://github.com/raetha/ha-scrutiny).
+Contributions are welcome via pull requests at [vitals5/ha_scrutiny](https://github.com/vitals5/ha_scrutiny).
 
 ## Development setup
 
