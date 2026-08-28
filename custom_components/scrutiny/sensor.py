@@ -585,9 +585,15 @@ class ScrutinySmartAttributeSensor(
         if when_failed == "-":
             when_failed = None
 
+        # NVMe has no ATA raw_value; fall back to `value` (same as the raw-value
+        # sensor below) so the attribute isn't blank for NVMe.
+        raw_value = current_attr_data.get(ATTR_RAW_VALUE)
+        if raw_value is None:
+            raw_value = current_attr_data.get(ATTR_NORMALIZED_VALUE)
+
         attributes: dict[str, Any] = {
             ATTR_ATTRIBUTE_ID: current_attr_data.get(ATTR_ATTRIBUTE_ID),
-            ATTR_RAW_VALUE: current_attr_data.get(ATTR_RAW_VALUE),
+            ATTR_RAW_VALUE: raw_value,
             ATTR_RAW_STRING: current_attr_data.get(ATTR_RAW_STRING),
             ATTR_NORMALIZED_VALUE: current_attr_data.get(ATTR_NORMALIZED_VALUE),
             ATTR_WORST: current_attr_data.get(ATTR_WORST),
@@ -701,6 +707,14 @@ class ScrutinySmartRawValueSensor(
         ].get(self._attribute_id_str, {})
 
         raw = attr_data.get(ATTR_RAW_VALUE)
+        if raw is None:
+            # NVMe attributes have no ATA-style ``raw_value``; Scrutiny reports
+            # the count directly in ``value`` (there is no 0-100 normalization
+            # for NVMe). Fall back to it so NVMe attributes (e.g. Unsafe
+            # Shutdowns, Media Errors) expose their real integer value. ATA
+            # drives always carry ``raw_value`` so this fallback never shadows
+            # their normalized ``value``.
+            raw = attr_data.get(ATTR_NORMALIZED_VALUE)
         # Raw values from Scrutiny are typically integers; coerce for safety.
         try:
             self._attr_native_value = int(raw) if raw is not None else None
